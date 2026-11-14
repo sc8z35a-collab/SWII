@@ -1,5 +1,6 @@
 import {normalize,vectorCross} from './engine.js';
 import {meshFrame,drawCar} from './moving-models.js';
+import {humanInstance} from './people.js';
 import {DUST,EXHAUST,HEAT_METAL,IGNITION,LEATHER,LIFT_MATERIAL_OFFSET,PAPER,SHIELD_TILE,SHOCK,SOOT,SPIRIT} from './architecture-materials.js';
 import {CANNON_DROP,CANNON_PITCH,EVACUATION_MS,launchHeight,launchSite} from './mission-layout.js';
 import {missionData} from './mission-data.js';
@@ -70,6 +71,15 @@ function drawBook(meshes,book,now){
 }
 function drawEnemy(meshes,actor,clock){
   const {scale,walked,speedNow,alerted}=actor;
+  if(meshes.detailed){
+    const stride=alerted?2.55:1.16;
+    (meshes.humans??=[]);
+    humanInstance(meshes.humans,{x:actor.x,y:actor.y,z:actor.z,yaw:actor.yaw,scale,build:scale>1?1.12:1.04,
+      phase:walked/(stride*scale)*Math.PI*2,gait:clamp(speedNow/(scale*1.6)),stride,reach:0,
+      skin:scale>1?'8b8f7d':'aaa797',hair:'1d1f1f',top:scale>1?'515c59':'2a3539',bottom:scale>1?'303b3d':'283234',
+      shoe:'1a1c1d',style:(2<<8)|1|32|(alerted?16:0)});
+    return;
+  }
   const stride=scale*(alerted?2.55:1.16),cycle=walked/stride*2*Math.PI;
   const weight=clamp(speedNow/(scale*2.2)),drive=Math.sin(cycle)*weight,breath=Math.sin(clock*2.4)*.009;
   const model=meshFrame(meshes,{...actor,y:actor.y+scale*(Math.abs(Math.sin(cycle))*.034*weight+breath)});
@@ -336,7 +346,13 @@ export function drawMission(meshes,mission,eye,now,low=false,groundAt){
   effectsToMesh(meshes,effects,eye);
 }
 
+let odometer={id:null,x:0,z:0,spin:0};
 export function updateVehicleModel(meshes,player,pitch){
   const car=missionData.cars[player.vehicleId];
-  drawCar(meshes,{...player,paint:car?.paint},pitch);
+  if(odometer.id!==player.vehicleId)odometer={id:player.vehicleId,x:player.x,z:player.z,spin:0};
+  const s=Math.sin(player.yaw),c=Math.cos(player.yaw);
+  const forward=(player.x-odometer.x)*s-(player.z-odometer.z)*c;
+  odometer.spin=(odometer.spin+forward/.335)%(Math.PI*2);
+  odometer.x=player.x;odometer.z=player.z;
+  drawCar(meshes,{...player,paint:car?.paint},pitch,odometer.spin);
 }

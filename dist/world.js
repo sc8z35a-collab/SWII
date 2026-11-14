@@ -11,6 +11,7 @@ export const cities=[
   {id:'sydney',n:'05',name:'シドニー',en:'Sydney',country:'オーストラリア',region:'OCEANIA',coords:'33.87° S   151.21° E',accent:'#83d6c6',sky:'#367b9d',desc:'帆のような屋根と青い港。海沿いの遊歩道を歩く。',spawn:[0,78],hero:[[44,20,77],[-14,11,-24]],spots:[['quay','サーキュラー・キー','波止場へ続く大通りへ',0,44],['opera','オペラハウス','白い帆の建物の正面へ',-12,-4],['bridge','ハーバーブリッジ展望地点','港の西側の展望デッキへ',-54,-12]]},
   {id:'rio',n:'06',name:'リオデジャネイロ',en:'Rio de Janeiro',country:'ブラジル',region:'SOUTH AMERICA',coords:'22.91° S   43.17° W',accent:'#8acbb4',sky:'#52807a',desc:'波模様の遊歩道から、南大西洋の浜辺と緑の山を見渡す。',spawn:[0,77],hero:[[74,35,101],[-16,12,-38]],spots:[['walk','コパカバーナ遊歩道','波模様の舗道へ',23,38],['beach','コパカバーナ海岸','パラソルの並ぶ浜辺へ',51,1],['mountain','コルコバード展望地点','山の上の像を見渡せる場所へ',-17,-31]]}
 ];
+const cloudCover={tokyo:.42,paris:.5,newyork:.38,cairo:.16,sydney:.36,rio:.46};
 const daylight={
   tokyo:[[.71,.82,.89],[.22,.51,.78],[-.49,.75,.44],.00235],
   paris:[[.78,.84,.88],[.32,.55,.79],[-.57,.72,.39],.00248],
@@ -21,13 +22,14 @@ const daylight={
 };
 export function lighting(city){
   const [horizon,zenith,sun,haze]=daylight[city.id];
-  return {horizon,zenith,sun:normalize(sun),night:0,haze,ocean:city.id==='rio'||city.id==='sydney'?1:0};
+  return {horizon,zenith,sun:normalize(sun),night:0,haze,clouds:cloudCover[city.id]??.4,ocean:city.id==='rio'||city.id==='sydney'?1:0};
 }
 export function blendLighting(from,to,progress){
   const t=progress*progress*(3-2*progress),mix=(a,b)=>a+(b-a)*t;
   const color=(a,b)=>a.map((value,i)=>mix(value,b[i]));
   return {horizon:color(from.horizon,to.horizon),zenith:color(from.zenith,to.zenith),
     sun:normalize(color(from.sun,to.sun)),night:mix(from.night,to.night),haze:mix(from.haze,to.haze),ocean:mix(from.ocean,to.ocean),
+    clouds:mix(from.clouds??.4,to.clouds??.4),
     oceanBearing:color(from.oceanBearing??[-1,0],to.oceanBearing??[-1,0])};
 }
 const colorCache=new Map();
