@@ -236,7 +236,7 @@ export function createRenderer(canvas){
   let shadowBuffer=null,shadowUnsupported=false,shadowDirty=true;
   const cascades=[{range:38,snap:4,key:'',last:-Infinity,matrix:null,planes:null},{range:205,snap:40,key:'',last:-Infinity,matrix:null,planes:null}];
   let skyKey='',model=null,modelTime=-Infinity,lutDirty=true;
-  let exposure=8.2,frameIndex=0,previousVP=null,previousEye=null,previousSize='';
+  let exposure=8.2,frameIndex=0,previousVP=null,previousEye=null,previousSize='',previousTime=null;
   let clientWidth=canvas.clientWidth,clientHeight=canvas.clientHeight;
   const resize=typeof ResizeObserver==='function'?new ResizeObserver(([entry])=>{
     clientWidth=entry.contentRect.width;
@@ -411,8 +411,15 @@ export function createRenderer(canvas){
       coarse.set(c,(y*cw+x)*3);
     }
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-      const cx=Math.min(cw-1,Math.floor(x*cw/w)),cy=Math.min(ch-1,Math.floor(y*ch/h));
-      for(let c=0;c<3;c++)data[(y*w+x)*4+c]=toHalf(coarse[(cy*cw+cx)*3+c]);
+      // Bilinear between coarse texel centers, wrapping around in azimuth.
+      const fx=(x+.5)*cw/w-.5,fy=Math.min(ch-1,Math.max(0,(y+.5)*ch/h-.5));
+      const x0=Math.floor(fx),y0=Math.min(ch-2,Math.floor(fy)),u=fx-x0,v=fy-y0;
+      const a=(x0%cw+cw)%cw,b=(a+1)%cw;
+      for(let c=0;c<3;c++){
+        const at=(i,j)=>coarse[(j*cw+i)*3+c];
+        const top=at(a,y0)+(at(b,y0)-at(a,y0))*u,bottom=at(a,y0+1)+(at(b,y0+1)-at(a,y0+1))*u;
+        data[(y*w+x)*4+c]=toHalf(top+(bottom-top)*v);
+      }
       data[(y*w+x)*4+3]=toHalf(1);
     }
     gl.activeTexture(gl.TEXTURE3);
@@ -474,7 +481,7 @@ export function createRenderer(canvas){
         Math.round(eye[1]/(cascade.snap*.5))*cascade.snap*.5,Math.round((eye[2]+forward[2]*ahead)/cascade.snap)*cascade.snap];
       const key=model.sun.map(n=>Math.round(n*400)).join(',')+':'+anchor.join(',');
       const moved=key!==cascade.key;
-      const due=moved||shadowDirty&&time-cascade.last>=(index?.12:.08)||movedActors&&index===0&&time-cascade.last>=.06;
+      const due=moved||shadowDirty&&time-cascade.last>=(index?.12:.08)||movedActors&&time-cascade.last>=(index?.2:.06);
       if(!due)continue;
       if(moved){
         cascade.matrix=shadowProjection(model.sun,anchor,size,cascade.range);
@@ -496,8 +503,8 @@ export function createRenderer(canvas){
       gl.uniformMatrix4fv(depth.u.VP,false,cascade.matrix);
       const casters=scene.filter(batch=>inFrustum(batch.bounds,cascade.planes));
       drawBatches(casters,cascade.planes,eye);
-      if(index===0||cascade.range<80)for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
-      actors.drawShadows(cascade.matrix,time,eye);
+      for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
+      actors.drawShadows(cascade.matrix,time,eye,cascade.planes);
       useWorldProgram(depth);
       gl.uniformMatrix4fv(depth.u.VP,false,cascade.matrix);
       cascade.last=time;
@@ -534,7 +541,9 @@ export function createRenderer(canvas){
     const bloom=quality!=='low'&&floatColor;
     updateSky(lighting,time);
     const targetExposure=model.underground?6:8.2;
-    exposure+=(targetExposure-exposure)*.08;
+    const step=previousTime===null?1:Math.min(.25,Math.max(0,time-previousTime));
+    previousTime=time;
+    exposure+=(targetExposure-exposure)*(1-Math.exp(-step*4.8));
     renderSkyTexture();
 
     const jitter=taa?jitterSequence[frameIndex%jitterSequence.length]:[0,0];
@@ -597,9 +606,8 @@ export function createRenderer(canvas){
     gl.uniform1i(main.u.SurfaceMaps,1);
     gl.uniform1f(main.u.MaterialDetail,surfacesReady?(quality==='low'?1:2):0);
     drawBatches(front,planes,eye);
-    gl.uniform1f(main.u.Dynamic,1);
     for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
-    actors.draw({vp,eye,time,send:u=>sendLighting(u,lighting,time,shadows)});
+    actors.draw({vp,eye,time,planes,send:u=>sendLighting(u,lighting,time,shadows)});
     useWorldProgram(main);
 
     const right=unit(cross(forward,[0,1,0])),up=cross(right,forward);
@@ -669,8 +677,21 @@ export function createRenderer(canvas){
     setAutoScale(value){autoScale=value;},
     dispose(){
       resize?.disconnect();
-      gl.deleteTexture(surfaceTexture);
+      actors.dispose?.();
       post.dispose();
+      for(const resident of residents.values()){
+        for(const mesh of resident.meshes.values())gl.deleteVertexArray(mesh.vao);
+        gl.deleteBuffer(resident.buffer);
+      }
+      residents.clear();
+      for(const actor of Object.values(people)){gl.deleteVertexArray(actor.mesh.vao);gl.deleteBuffer(actor.buffer);}
+      gl.deleteVertexArray(paneMesh.vao);gl.deleteBuffer(paneBuffer);
+      for(const shape of Object.values(geometry)){gl.deleteBuffer(shape.buffer);gl.deleteBuffer(shape.elements);}
+      for(const texture of [surfaceTexture,skyTexture,placeholderShadow,shadowBuffer?.texture])if(texture)gl.deleteTexture(texture);
+      for(const framebuffer of [skyFramebuffer,shadowBuffer?.framebuffer])if(framebuffer)gl.deleteFramebuffer(framebuffer);
+      for(const sampler of [compareSampler,rawSampler])gl.deleteSampler(sampler);
+      for(const program of [main,depth,skies,skyLut])gl.deleteProgram(program.program);
+      shadowBuffer=null;
     }
   };
 }

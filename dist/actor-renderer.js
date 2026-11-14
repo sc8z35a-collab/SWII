@@ -29,7 +29,7 @@ out vec4 vParts;
 ${humanAnimation}
 void main(){
   float yaw=aX.x,scale=aX.y,build=aX.z;
-  float seed=fract(sin(dot(aCenter.xz,vec2(12.9898,78.233)))*43758.5453);
+  float seed=fract(aZ.y*.000173+aStyle.x*.000317+aStyle.y*.000071+aStyle.w*.0617+aZ.z*.000043);
   Pose P=makePose(aY.x,aY.y,aY.z,aZ.x,uTime,seed);
   mat3 RA,RB;vec3 TA,TB;
   boneTransform(int(aExtra.x+.5),P,RA,TA);
@@ -53,6 +53,7 @@ void main(){
 const humanFragment=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 precision highp sampler2DShadow;
 in vec3 wPos,wNormal,vBind;
 flat in vec3 vSkin,vHair,vTop,vBottom,vShoes;
@@ -77,12 +78,13 @@ void main(){
   float fine=1.-smoothstep(.004,.02,footprint);
   int zone=0;
   // Hairlines are drawn analytically in bind space so they stay smooth across triangles.
-  if(variant!=2&&b.y>1.52){
+  if(variant!=2&&b.y>(variant==1?1.4:1.52)){
     float hairline=1.632+.55*b.z;
-    float cap=smoothstep(-.004,.004,b.y-hairline);
+    float cap=b.y>1.52?smoothstep(-.004,.004,b.y-hairline):0.;
     float back=variant==1?step(b.z,.01)*step(1.42,b.y)*step(ax,.115):0.;
     float sideburn=step(.07,ax)*step(b.z,.01)*step(1.6,b.y);
-    part=max(cap,max(back,sideburn))>.5?1:(part==1?0:part);
+    float ear=variant==1?0.:step(.074,ax)*step(abs(b.y-1.641),.03)*step(abs(b.z+.006),.024);
+    part=max(cap,max(back,sideburn))*(1.-ear)>.5?1:(part==1?0:part);
   }else if(part==1)part=0;
   if(part==1)zone=4;
   else if(part==5)zone=5;
@@ -196,7 +198,7 @@ void main(){
     albedo=mix(albedo,vec3(.02),band);
   }
   float NoL=max(dot(n,uSun),0.);
-  float shadow=sunShadow(wPos,n,NoL)*cloudShadow(wPos,uSun);
+  float shadow=sunShadow(wPos,n,NoL)*(uQuality>.5?cloudShadow(wPos,uSun):1.);
   float share;
   vec3 color=shadeSurface(albedo,n,v,rough,0.,f0,shadow,ao,translucency,sheen,share);
   if(zone==0){
@@ -234,12 +236,13 @@ void main(){
     mat3 r=rotX(spin);
     if(p.z>0.)r=rotY(steer)*r;
     p=c+r*(p-c);n=r*n;
-  }
+    vBind=c+rotX(spin)*(aPosition-c);
+  }else vBind=aPosition;
   vec3 forward=vec3(sin(yaw),0.,-cos(yaw)),left=-vec3(cos(yaw),0.,sin(yaw));
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward)*rotX(-pitch);
   wPos=aCenter+orient*p;
   wNormal=normalize(orient*n);
-  vBind=aPosition;vGlass=aExtra.y;
+  vGlass=aExtra.y;
   vPaint=unpackColor(aY.x);vFlags=aY.y;vPart=float(part);
   gl_Position=uVP*vec4(wPos,1.);
 }`;
@@ -247,6 +250,7 @@ void main(){
 const carFragment=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 precision highp sampler2DShadow;
 in vec3 wPos,wNormal,vBind;
 in float vGlass;
@@ -341,7 +345,7 @@ void main(){
   }
   vec3 color;
   float NoL=max(dot(n,uSun),0.);
-  float shadow=sunShadow(wPos,n,NoL)*cloudShadow(wPos,uSun);
+  float shadow=sunShadow(wPos,n,NoL)*(uQuality>.5?cloudShadow(wPos,uSun):1.);
   float share;
   float NoV=max(dot(n,v),1e-3);
   if(glass>.5){
@@ -389,20 +393,23 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     meshes.set(key,{buffer,elements,count:indices.length,type:wide?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT});
   }
   function received(list){
-    for(const {key,mesh} of list)addMesh(key,mesh);
+    for(const {key,mesh} of list)if(!meshes.has(key))addMesh(key,mesh);
     ready=['human0-0','human1-0','human2-0','car-0'].every(k=>meshes.has(k));
   }
   // The meshes are built off the main thread; the detailed path switches on once the
-  // low-detail bodies have arrived.
-  try{
-    const worker=new Worker(new URL('./model-worker.js',import.meta.url),{type:'module'});
-    worker.onmessage=({data})=>{received(data.meshes);if(data.done)worker.terminate();};
-    worker.onerror=()=>{worker.terminate();buildLocally();};
-  }catch{buildLocally();}
+  // low-detail bodies have arrived. A failing worker falls back to building only what is missing.
+  let worker=null,disposed=false;
   async function buildLocally(){
-    const {buildModels}=await import('./model-worker.js');
-    for(const list of buildModels())received(list);
+    try{
+      const {buildModels}=await import('./model-worker.js');
+      for(const list of buildModels()){if(disposed)return;received(list);}
+    }catch(error){console.info('Detailed actor meshes unavailable',error.message);}
   }
+  try{
+    worker=new Worker(new URL('./model-worker.js',import.meta.url),{type:'module'});
+    worker.onmessage=({data})=>{if(disposed)return;received(data.meshes);if(data.done){worker.terminate();worker=null;}};
+    worker.onerror=worker.onmessageerror=()=>{worker?.terminate();worker=null;if(!disposed)void buildLocally();};
+  }catch{void buildLocally();}
 
   function bucket(key,meshKey){
     let entry=buckets.get(key);
@@ -443,15 +450,19 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     gl.drawElementsInstanced(gl.TRIANGLES,entry.mesh.count,entry.mesh.type,0,entry.count);
   }
   const variantOf=(source,i)=>(Math.round(source[i*16+15])>>8)&3;
-  // Sorts actors into variant and detail buckets and uploads their instances.
-  function prepare(eye,shadow){
+  // Bounding sphere test against frustum planes (from frustumPlanes()).
+  const visible=(planes,x,y,z,radius)=>!planes||planes.every(([a,b,c,d])=>a*x+b*y+c*z+d>=-radius*Math.hypot(a,b,c));
+  // Sorts actors into variant and detail buckets, skips those outside the view and uploads them.
+  function prepare(eye,shadow,planes){
     const groups=[];
     if(humans?.length){
       const lists=new Map();
       for(let i=0;i<humans.length/16;i++){
-        const dx=humans[i*16]-eye[0],dz=humans[i*16+2]-eye[2],scale=humans[i*16+4];
+        const x=humans[i*16],y=humans[i*16+1],z=humans[i*16+2],scale=humans[i*16+4];
+        if(!visible(planes,x,y+.9*scale,z,1.2*scale))continue;
+        const dx=x-eye[0],dz=z-eye[2],variant=variantOf(humans,i);
         const near=!shadow&&dx*dx+dz*dz<(26*scale)**2*(mobile?.6:1);
-        const key='human'+variantOf(humans,i)+'-'+(near&&meshes.has('human'+variantOf(humans,i)+'-1')?1:0);
+        const key='human'+variant+'-'+(near&&meshes.has('human'+variant+'-1')?1:0);
         if(!lists.has(key))lists.set(key,[]);
         lists.get(key).push(i);
       }
@@ -460,7 +471,9 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     if(cars?.length){
       const near=[],far=[];
       for(let i=0;i<cars.length/16;i++){
-        const dx=cars[i*16]-eye[0],dz=cars[i*16+2]-eye[2];
+        const x=cars[i*16],y=cars[i*16+1],z=cars[i*16+2];
+        if(!visible(planes,x,y+.7,z,2.6))continue;
+        const dx=x-eye[0],dz=z-eye[2];
         (!shadow&&dx*dx+dz*dz<55*55&&meshes.has('car-1')?near:far).push(i);
       }
       if(near.length)groups.push({program:'car',key:(shadow?'s':'')+'car-1',meshKey:'car-1',source:cars,indices:near});
@@ -475,9 +488,9 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   return {
     get ready(){return ready;},
     update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;},
-    draw({vp,eye,time,send}){
+    draw({vp,eye,time,send,planes}){
       if(!ready)return;
-      const groups=prepare(eye,false);
+      const groups=prepare(eye,false,planes);
       for(const name of ['human','car']){
         const list=groups.filter(g=>g.program===name&&g.entry);
         if(!list.length)continue;
@@ -492,9 +505,9 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
       }
       gl.bindVertexArray(null);
     },
-    drawShadows(matrix,time,eye){
+    drawShadows(matrix,time,eye,planes){
       if(!ready)return;
-      const groups=prepare(eye??[0,0,0],true);
+      const groups=prepare(eye??[0,0,0],true,planes);
       for(const name of ['human','car']){
         const list=groups.filter(g=>g.program===name&&g.entry);
         if(!list.length)continue;
@@ -505,6 +518,13 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
         for(const g of list)drawBucket(g.entry);
       }
       gl.bindVertexArray(null);
+    },
+    dispose(){
+      disposed=true;worker?.terminate();worker=null;
+      for(const entry of buckets.values()){gl.deleteVertexArray(entry.vao);gl.deleteBuffer(entry.buffer);}
+      for(const mesh of meshes.values()){gl.deleteBuffer(mesh.buffer);gl.deleteBuffer(mesh.elements);}
+      for(const program of Object.values(programs))gl.deleteProgram(program.program);
+      buckets.clear();meshes.clear();ready=false;
     }
   };
 }

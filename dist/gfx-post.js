@@ -13,6 +13,7 @@ void main(){
 const header=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 in vec2 uv;
 out vec4 frag;
 ${glslCommon}
@@ -47,7 +48,9 @@ void main(){
   vec3 py=viewPosition(uv+vec2(0.,uTexel.y)),ny=viewPosition(uv-vec2(0.,uTexel.y));
   vec3 dx=abs(px.z-p.z)<abs(nx.z-p.z)?px-p:p-nx;
   vec3 dy=abs(py.z-p.z)<abs(ny.z-p.z)?py-p:p-ny;
-  vec3 n=normalize(cross(dx,dy));
+  vec3 crossed=cross(dx,dy);
+  if(dot(crossed,crossed)<1e-12){frag=vec4(1.);return;}
+  vec3 n=normalize(crossed);
   float depth=-p.z;
   float radius=uRadius*(1.+depth*.012);
   vec2 extent=radius/(2.*depth*uProjection.xy);
@@ -116,6 +119,7 @@ void main(){
   float ao=uUseAO>.5?textureLod(uAO,uv,0.).r:1.;
   vec4 scene=sceneSample(uColor,uv);
   vec3 current=occluded(scene,ao);
+  if(any(isnan(current))||any(isinf(current)))current=vec3(0.);
   if(uUseHistory<.5){frag=vec4(uEncoded>.5?sqrt(current/(1.+current)):current,1.);return;}
   vec3 m1=vec3(0.),m2=vec3(0.),lo=vec3(1e9),hi=vec3(-1e9);
   for(int y=-1;y<=1;y++)for(int x=-1;x<=1;x++){
@@ -142,6 +146,7 @@ void main(){
   if(dynamic)blend=max(blend,.32);
   if(uReset>.5||any(lessThan(back,vec2(0.)))||any(greaterThan(back,vec2(1.))))blend=1.;
   vec3 result=untonemap(fromYCoCg(mix(past,now,blend)));
+  if(any(isnan(result))||any(isinf(result)))result=any(isnan(current))||any(isinf(current))?vec3(0.):current;
   frag=vec4(max(result,0.),1.);
 }`;
 
@@ -227,7 +232,17 @@ void main(){
     }
   }
   if(uHasBloom>.5)color+=textureLod(uBloom,uv,0.).rgb*uBloomStrength;
+  float sunSeen=0.;
   if(uSunScreen.w>0.){
+    for(int i=0;i<5;i++){
+      vec2 o=vec2(i==1?1.:i==2?-1.:0.,i==3?1.:i==4?-1.:0.)*.004;
+      vec2 t=uSunScreen.xy+o;
+      bool inside=t.x>0.&&t.x<1.&&t.y>0.&&t.y<1.;
+      float bright=inside?luminance(sceneColor(t)):0.;
+      sunSeen+=inside&&textureLod(uDepth,t,0.).r>=1.?.2*smoothstep(25.,140.,bright):0.;
+    }
+  }
+  if(uSunScreen.w>0.&&sunSeen>.01){
     // Sun shafts: march toward the sun and count open sky, so buildings and trees cut rays.
     vec2 toSun=uSunScreen.xy-uv;
     float reach=length(toSun*vec2(uTexel.y/uTexel.x,1.));
@@ -237,19 +252,14 @@ void main(){
       vec2 t=uv+stepUV*ign(gl_FragCoord.xy);
       float open=0.,weight=1.,total=0.;
       for(int i=0;i<STEPS;i++){
-        float sky=textureLod(uDepth,clamp(t,vec2(0.),vec2(1.)),0.).r>=.99999?1.:0.;
+        float sky=textureLod(uDepth,clamp(t,vec2(0.),vec2(1.)),0.).r>=1.?1.:0.;
         open+=sky*weight;total+=weight;weight*=.94;t+=stepUV;
       }
       float shafts=open/total*pow(1.-smoothstep(.0,1.1,reach),2.);
-      color+=uSunTint*shafts*shafts*.2*uSunScreen.w;
+      color+=uSunTint*shafts*shafts*.2*uSunScreen.w*sunSeen;
     }
     vec2 aspect=vec2(uTexel.y/uTexel.x,1.);
-    float visible=0.;
-    for(int i=0;i<5;i++){
-      vec2 o=vec2(i==1?1.:i==2?-1.:0.,i==3?1.:i==4?-1.:0.)*.006;
-      vec2 t=uSunScreen.xy+o;
-      visible+=t.x>0.&&t.x<1.&&t.y>0.&&t.y<1.&&textureLod(uDepth,t,0.).r>=.99999?.2:0.;
-    }
+    float visible=sunSeen;
     if(visible>0.){
       vec2 d=(uv-uSunScreen.xy)*aspect;
       float r=length(d);

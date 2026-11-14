@@ -75,7 +75,7 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
   vec3 p0=vec3((cell.x-roomIndex*span+f.x)*size.x,f.y*H,0.);
   vec3 d=dir;
   d.z=max(d.z,.02);
-  vec3 safe=sign(d)*max(abs(d),vec3(1e-4));
+  vec3 safe=vec3(d.x<0.?-1.:1.,d.y<0.?-1.:1.,1.)*max(abs(d),vec3(1e-4));
   float tx=(safe.x>0.?W-p0.x:-p0.x)/safe.x;
   float ty=(safe.y>0.?ceiling-p0.y:-p0.y)/safe.y;
   float tz=D/safe.z;
@@ -134,8 +134,8 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
     float frame=step(abs(hp.z-D*.7),.45)*step(hp.y,2.1)*step(.5,pick);
     albedo=mix(albedo,vec3(.36,.28,.20),frame);
   }
-  float skirting=1.-smoothstep(.06,.09,hp.y);
-  albedo=mix(albedo,albedo*.7,skirting*step(t,min(tx,tz)+1e-4));
+  float skirting=(1.-smoothstep(.06,.09,hp.y))*(t==ty?0.:1.);
+  albedo=mix(albedo,albedo*.7,skirting);
 
   // Furniture at mid depth adds parallax between the back wall and the window.
   float zf=D*(office>.5?.38:.55);

@@ -31,7 +31,7 @@ vec3 ambientLight(vec3 n){
 vec3 environment(vec3 r,float roughness){
   if(uUnderground>.5)return ambientLight(r)*.9;
   vec3 sky=skyLUT(vec3(r.x,max(r.y,.012),r.z));
-  vec3 blurred=ambientLight(r)*1.15;
+  vec3 blurred=ambientLight(r)*.78;
   vec3 above=mix(sky,blurred,smoothstep(.2,.85,roughness));
   return mix(uGroundRad*1.15,above,smoothstep(-.14,.05,r.y+roughness*.12));
 }
@@ -216,6 +216,8 @@ const vec4Table=(name,rows)=>`const vec4 ${name}[${rows.length}]=vec4[](${rows
 export const worldFragment=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
+precision highp sampler2DArray;
 precision highp sampler2DShadow;
 in vec3 wPos,wNormal,localPos,localNormal,extent;
 in vec3 surfaceColor;
@@ -241,7 +243,7 @@ vec4 effectColor(float mat){
   float r=length(q),a=0.;
   vec3 tint=toLinear(style.rgb),color;
   if(mat==${IGNITION}.){
-    float along=q.y*.5+.5;
+    float along=saturate(q.y*.5+.5);
     vec2 p=vec2(q.x*2.8+center.x*.13,along*7.3-uTime*7.5+center.z*.07);
     float turbulence=.61*noise(p)+.27*noise(p*2.)+.12*noise(p*4.03);
     float width=mix(.83,.075,pow(along,.72))*(.78+.36*turbulence);
@@ -262,7 +264,7 @@ vec4 effectColor(float mat){
     vec3 n=normalize(basis[0]*nq.x+basis[1]*nq.y+basis[2]*nq.z);
     float lit=saturate(dot(n,uSun)*.6+.4);
     float inner=.55+.45*turbulence;
-    color=tint*(uSunColor*lit*.32*cloudShadow(wPos,uSun)+ambientLight(n)*1.25)*inner;
+    color=tint*(uSunColor*lit*.32*(uQuality>.5?cloudShadow(wPos,uSun):1.)+ambientLight(n)*1.25)*inner;
     color+=tint*uSunColor*pow(saturate(dot(normalize(wPos-uEye),uSun)),6.)*.5*(1.-a);
     if(mat==${SPIRIT}.){
       a=exp(-r*r*3.6)*(1.-smoothstep(.64,1.,r));
@@ -291,14 +293,14 @@ vec4 glassPane(vec3 n,vec3 v,float mat){
   vec4 o=encodeOutput(color,0.);
   return vec4(o.rgb,alpha);
 }
-vec3 bevelNormal(vec3 n){
+vec3 bevelNormal(vec3 n,float strength){
   vec3 halfSize=extent*.5;
   float radius=min(.035,min(halfSize.x,min(halfSize.y,halfSize.z))*.35);
   if(radius<.004)return n;
   vec3 depth=halfSize-abs(localPos);
   vec3 near=(1.-smoothstep(0.,radius,depth))*sign(localPos)*(1.-abs(localNormal));
   if(dot(near,near)<1e-6)return n;
-  return normalize(n+basis*near*.85);
+  return normalize(n+basis*near*.85*strength);
 }
 void main(){
   vec3 n=normalize(wNormal);
@@ -321,7 +323,7 @@ void main(){
   float weather=varied?float((code/8)%8)/7.:0.;
   vec4 proportions=eraProfiles[era],opening=windowProfiles[pattern];
   bool groundLike=mat==1.||mat==2.||mat==3.||mat==9.||(mat>=26.&&mat<29.)||(mat>=35.&&mat<=38.)||mat==47.;
-  if(uKind==${KIND_IDS.box}&&!groundLike&&footprint<.05)n=bevelNormal(n);
+  if(uKind==${KIND_IDS.box}&&!groundLike&&footprint<.06)n=bevelNormal(n,1.-smoothstep(.03,.06,footprint));
   vec3 geometryNormal=n;
   float roughness,cavity;
   base=facadeMaterial(base,n,int(mat),era,footprint,roughness,cavity);
@@ -410,7 +412,7 @@ void main(){
     float F=.02+.98*pow5(1.-NoV);
     vec3 r=reflect(-v,wn);
     vec3 reflection=environment(r,.04);
-    vec3 body=toLinear(base)*.16*(uAmbUp*2.5+uSunColor*max(uSun.y,0.)*.35)*cloudShadow(wPos,uSun);
+    vec3 body=toLinear(base)*.16*(uAmbUp*2.5+uSunColor*max(uSun.y,0.)*.35)*(uQuality>.5?cloudShadow(wPos,uSun):1.);
     float NoL=max(dot(wn,uSun),0.);
     vec3 h=normalize(v+uSun);
     float a=.03;
@@ -450,7 +452,6 @@ void main(){
     float pane=(1.-smoothstep(-.040,-.016,border))*vis;
     vec3 along=front?basis[0]:basis[2];
     vec3 up=basis[1];
-    float facing=dot(geometryNormal,cross(along,up))>0.?1.:-1.;
     vec3 ray=vec3(dot(-v,along),dot(-v,up),max(dot(v,geometryNormal),.02));
     float recess=varied?proportions.z*(curtainWall?.25:.46):curtainWall?.027:.106;
     vec2 parallax=clamp(ray.xy/ray.z,-2.,2.);
@@ -702,6 +703,7 @@ void main(){
 export const skyFragment=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 precision highp sampler2DShadow;
 in vec2 screen;
 uniform vec3 uRight,uUp,uForward;

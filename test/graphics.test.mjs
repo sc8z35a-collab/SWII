@@ -17,7 +17,8 @@ test('the daylight sky is brighter toward the sun and keeps a warm sun over a bl
       assert.ok(sky[key].every(v=>Number.isFinite(v)&&v>=0),city.id+' '+key);
     assert.ok(sky.sunColor[0]>sky.sunColor[2],city.id+' sun is warmer than white');
     assert.ok(sky.ambientUp[2]>sky.ambientUp[0],city.id+' skylight is blue');
-    assert.ok(luminance(sky.sunColor)*city.id.length>luminance(sky.ambientUp),city.id);
+    // Clear daylight: the sun on a level surface outshines the sky dome (ambient terms are E/π).
+    assert.ok(luminance(sky.sunColor)*sky.sun[1]>luminance(sky.ambientUp)*Math.PI*2,city.id);
     assert.ok(luminance(sky.ambientSun)>=luminance(sky.ambientAnti),city.id+' sun side of the sky is brighter');
   }
 });

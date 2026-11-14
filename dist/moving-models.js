@@ -30,7 +30,7 @@ const packColor=hex=>parseInt(hex,16);
 export function drawCar(meshes,player,pitch=0,spin=0,steer=0){
   if(meshes.detailed){
     const paint=player.wreck?'373638':player.paint??'477582';
-    (meshes.cars??=[]).push(player.x,player.y+(player.parked?.014:.119)-.02,player.z,player.yaw,pitch,spin,
+    (meshes.cars??=[]).push(player.x,player.y+(player.parked?-.006:.012),player.z,player.yaw,pitch,spin,
       packColor(paint),player.wreck?1:0,steer,0,0,0,0,0,0,0);
     return;
   }

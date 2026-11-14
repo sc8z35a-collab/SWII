@@ -60,13 +60,14 @@ function hashOf(n){
 export function humanInstance(out,{x,y,z,yaw,scale,build,phase,gait,stride,reach=0,skin,hair,top,bottom,shoe,style}){
   out.push(x,y,z,yaw,scale,build,phase,gait,stride,reach,pack(skin),pack(hair),pack(top),pack(bottom),pack(shoe),style);
 }
-function detailedPeople(people,seconds,eye,out){
+function detailedPeople(people,seconds,eye,out,groundAt){
   const humans=[];
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;
     if(eye[0]<west-155||eye[0]>east+155||eye[2]<north-155||eye[2]>south+155)continue;
     const pose=pedestrianPose(person,seconds),[x,y,z]=pose.position;
     if(Math.hypot(x-eye[0],z-eye[2])>155)continue;
+    if(groundAt&&!Number.isFinite(groundAt(x,z)))continue;
     const [skin,hair,shirt,pants,accent,height,build]=profiles[person.id%profiles.length];
     const h=hashOf(person.id);
     const female=h%5===1||h%5===3;
@@ -89,7 +90,7 @@ function detailedPeople(people,seconds,eye,out){
   return out;
 }
 export function peopleMeshes(people,seconds,eye,groundAt,detailed=false){
-  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true});
+  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true},groundAt);
   const out={box:[],chamfer:[],tube:[],ball:[]};
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;

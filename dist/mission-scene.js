@@ -69,13 +69,22 @@ function drawBook(meshes,book,now){
   if(open)m('chamfer',.07,.090,-.003,.235,.014,.41,'e3d6af',PAPER);
   m('ball',.025,.147,.01,.037*(1+Math.sin(now*5)*.23),.037,.037,'f8cc74',IGNITION);
 }
+const gaits=new Map();
+function gaitPhase(actor,stride){
+  // Integrate the phase from walked distance so a stride change keeps the legs where they are.
+  const key=actor.id??actor.name,last=gaits.get(key);
+  const step=last&&Number.isFinite(last.walked)?actor.walked-last.walked:0;
+  const phase=(last?.phase??0)+(Math.abs(step)<20?step:0)/(stride*actor.scale)*Math.PI*2;
+  gaits.set(key,{walked:actor.walked,phase:phase%(Math.PI*2)});
+  return phase;
+}
 function drawEnemy(meshes,actor,clock){
   const {scale,walked,speedNow,alerted}=actor;
   if(meshes.detailed){
     const stride=alerted?2.55:1.16;
     (meshes.humans??=[]);
     humanInstance(meshes.humans,{x:actor.x,y:actor.y,z:actor.z,yaw:actor.yaw,scale,build:scale>1?1.12:1.04,
-      phase:walked/(stride*scale)*Math.PI*2,gait:clamp(speedNow/(scale*1.6)),stride,reach:0,
+      phase:gaitPhase(actor,stride),gait:clamp(speedNow/(scale*1.6)),stride,reach:0,
       skin:scale>1?'8b8f7d':'aaa797',hair:'1d1f1f',top:scale>1?'515c59':'2a3539',bottom:scale>1?'303b3d':'283234',
       shoe:'1a1c1d',style:(2<<8)|1|32|(alerted?16:0)});
     return;
