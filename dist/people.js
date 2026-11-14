@@ -1,4 +1,4 @@
-import {normalize,vectorCross} from './engine.js';
+import {normalize,vectorCross} from './vector.js';
 
 const profiles=[
   ['e0b28c','403a38','607e88','3c4755','faf0d6',1.73,.96],
@@ -46,7 +46,50 @@ export function pedestrianPose(person,seconds){
   const yaw=Math.atan2(ax+(bx-ax)*t,-(az+(bz-az)*t))+Math.PI*(1-Math.tanh((reverse?-pace:pace)*8))*.5;
   return {position,yaw,pace,walked:leg*length+along};
 }
-export function peopleMeshes(people,seconds,eye,groundAt){
+const tops=['3b4a5c','8c3a3a','d8d4c8','2f3b34','6b5d4f','a7b4c2','1e2228','c49a6c','556b8a','e6e1d6','7a2f3b','4f6b5a','b5a99a','2c3e66','d9c3a0'];
+const bottoms=['2b3446','1f2226','4a4f57','6e6252','33465e','c9bfae','3a2f2a','58606b','23395d','8a7d6b'];
+const shoes=['1c1c1e','e8e6e1','4a3426','2d2f33','7b6b5a','b9b2a6'];
+const pack=hex=>parseInt(hex,16);
+function hashOf(n){
+  let h=Math.imul(n+0x9e3779b9,0x85ebca6b);
+  h=Math.imul(h^(h>>>13),0xc2b2ae35);
+  return (h^(h>>>16))>>>0;
+}
+// Instance layout for the skinned renderer: position, yaw, height scale, build, walk phase,
+// gait weight, stride per body height, arm pose, skin, hair, top, bottom and shoe colors, style bits.
+export function humanInstance(out,{x,y,z,yaw,scale,build,phase,gait,stride,reach=0,skin,hair,top,bottom,shoe,style}){
+  out.push(x,y,z,yaw,scale,build,phase,gait,stride,reach,pack(skin),pack(hair),pack(top),pack(bottom),pack(shoe),style);
+}
+function detailedPeople(people,seconds,eye,out){
+  const humans=[];
+  for(const person of people){
+    const [west,north,east,south]=prepare(person.path).bounds;
+    if(eye[0]<west-155||eye[0]>east+155||eye[2]<north-155||eye[2]>south+155)continue;
+    const pose=pedestrianPose(person,seconds),[x,y,z]=pose.position;
+    if(Math.hypot(x-eye[0],z-eye[2])>155)continue;
+    const [skin,hair,shirt,pants,accent,height,build]=profiles[person.id%profiles.length];
+    const h=hashOf(person.id);
+    const female=h%5===1||h%5===3;
+    const scale=(female?height*.955:height)/1.75;
+    const stride=1.42;
+    const walk=clamp(pose.pace*6,0,1);
+    let style=(female?1:0)<<8;
+    if(h&16)style|=1;
+    if(!female&&(h>>>5)%7===0)style|=2;
+    if((h>>>8)%10<3)style|=4;
+    else if((h>>>8)%10<6)style|=8;
+    if((h>>>12)%3===0)style|=128;
+    humanInstance(humans,{x,y,z,yaw:pose.yaw,scale,build:female?build*.94:build,
+      phase:pose.walked/(stride*scale)*Math.PI*2+person.id*1.7,gait:walk,stride,
+      skin,hair:female&&(h>>>14)%3===0?['6b4a32','2a2420','a07850'][(h>>>16)%3]:hair,
+      top:(h>>>18)%3===0?shirt:tops[(h>>>3)%tops.length],bottom:female&&(h>>>20)%2?tops[(h>>>9)%tops.length]:(h>>>21)%2?pants:bottoms[(h>>>6)%bottoms.length],
+      shoe:(h>>>24)%2?shoes[(h>>>25)%shoes.length]:accent,style});
+  }
+  out.humans=humans;
+  return out;
+}
+export function peopleMeshes(people,seconds,eye,groundAt,detailed=false){
+  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true});
   const out={box:[],chamfer:[],tube:[],ball:[]};
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;

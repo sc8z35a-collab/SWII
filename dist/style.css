@@ -176,3 +176,47 @@ dialog::backdrop{background:#101617a8;backdrop-filter:blur(4px)}
   #toast{bottom:max(104px,calc(env(safe-area-inset-bottom) + 88px))}
 }
 @media (prefers-reduced-motion:reduce){#missionProgress,#toast{transition:none}}
+/* Cinematic glass interface for the HDR renderer. */
+:root{--glass:rgba(16,21,24,.46);--line:rgba(255,248,232,.16);--gold:#f0d49b;--cream:#fbf6ea}
+#scene{background:linear-gradient(#6f93b8,#c9d6df 52%,#7d8a8f)}
+#shade{background:linear-gradient(90deg,#0b1013d9 0%,#0c1215a3 26%,#0f151a2e 58%,transparent 78%),linear-gradient(0deg,#0a0f12c4 0%,#0b10134a 24%,transparent 56%)}
+#vignette{background:linear-gradient(180deg,#0a0e1185 0%,transparent 20%,transparent 82%,#090d1060 100%)}
+.play #shade{background:linear-gradient(0deg,#0a0f1240,transparent 18%)}
+.play #vignette{background:linear-gradient(180deg,#0a0e1150 0%,transparent 14%)}
+.glass,#missionHud,.nav-btn,#service,dialog,#toast,.result-card,#threat{
+  -webkit-backdrop-filter:blur(16px) saturate(150%);backdrop-filter:blur(16px) saturate(150%)}
+.glass{background:linear-gradient(140deg,rgba(28,34,38,.56),rgba(12,16,19,.40));border:1px solid var(--line);
+  box-shadow:0 10px 34px rgba(0,0,0,.26),inset 0 1px 0 rgba(255,255,255,.07);border-radius:12px}
+.nav-btn{background:rgba(16,21,24,.42);border-color:var(--line);border-radius:11px}
+.brand-mark{background:rgba(16,21,24,.38);border-color:rgba(240,212,155,.45);border-radius:12px;box-shadow:inset 0 1px 0 rgba(255,255,255,.08)}
+.brand b{letter-spacing:.24em}
+h1{background:linear-gradient(176deg,#fffaf0 22%,#f3dcb0 64%,#d9a86f);-webkit-background-clip:text;background-clip:text;color:transparent;
+  text-shadow:none;filter:drop-shadow(0 6px 30px rgba(0,0,0,.35))}
+h1 span{color:#e9b27a;-webkit-text-fill-color:#e9b27a}
+.intro-jp{letter-spacing:.22em;text-shadow:0 2px 18px rgba(0,0,0,.45)}
+.intro-content p{color:#ece8de;text-shadow:0 1px 10px rgba(0,0,0,.5)}
+.primary{background:linear-gradient(180deg,#fbe7bd,#e9c88a);border-color:#fff1cf;box-shadow:0 10px 30px rgba(0,0,0,.28),inset 0 1px 0 rgba(255,255,255,.65)}
+.secondary{background:rgba(16,21,24,.45)}
+#missionHud{background:linear-gradient(120deg,rgba(24,30,33,.58),rgba(12,16,19,.40));border:1px solid var(--line);
+  box-shadow:0 12px 34px rgba(0,0,0,.24),inset 0 1px 0 rgba(255,255,255,.07);border-radius:13px}
+#missionHud[data-phase=evacuate],#missionHud[data-phase=survival]{border-color:rgba(255,178,140,.42)}
+.mission-rule{background:rgba(255,250,235,.16);border-radius:2px}
+#missionProgress{box-shadow:0 0 12px var(--mission-accent)}
+#health{gap:5px}
+#health i{height:5px;border-radius:3px;background:linear-gradient(90deg,#ffb894,#f38a6c);box-shadow:0 0 8px rgba(243,138,108,.45)}
+#health i.empty{background:rgba(255,235,220,.16);box-shadow:none}
+.compass span{letter-spacing:.2em;text-shadow:0 1px 10px rgba(0,0,0,.6)}
+#reticle{width:4px;height:4px;border:0;background:rgba(255,250,238,.85);box-shadow:0 0 0 1px rgba(0,0,0,.25),0 0 10px rgba(0,0,0,.4)}
+#threat{background:rgba(70,20,16,.55);border-color:rgba(255,170,140,.5);border-radius:10px;box-shadow:0 0 26px rgba(255,90,60,.22)}
+#service{background:rgba(16,21,24,.42);border-color:var(--line)}
+dialog{background:linear-gradient(160deg,rgba(28,35,38,.86),rgba(14,18,21,.9));border-color:var(--line);border-radius:18px}
+.setting select,.setting button{background:rgba(255,255,255,.07);border-color:var(--line);border-radius:9px}
+#travel{background:radial-gradient(ellipse at 50% 40%,#2a3a44,#0b1013 72%)}
+.travel-inner strong{letter-spacing:.06em;background:linear-gradient(176deg,#fffaf0,#e9c88a);-webkit-background-clip:text;background-clip:text;color:transparent}
+#toast{background:rgba(18,24,27,.62);border-color:var(--line);border-radius:11px;box-shadow:0 10px 30px rgba(0,0,0,.3)}
+#missionResult{background:rgba(8,11,13,.42)}
+.result-card{background:linear-gradient(160deg,rgba(28,35,38,.72),rgba(12,16,19,.66))}
+@media (any-pointer:coarse){
+  #joystick{background:rgba(16,21,24,.36);border-color:rgba(255,248,232,.28);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:inset 0 0 0 10px rgba(255,255,255,.04)}
+  #stick{background:rgba(240,212,155,.42);border-color:rgba(255,236,200,.7)}
+}

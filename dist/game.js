@@ -616,7 +616,7 @@ function frame(now){
     tuneScale(now,interval,target);
     if(now>=nextWalker){
       const underground=active&&motion.station;
-      walkers=underground?{}:peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround);
+      walkers=underground?{}:peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround,renderer.detailedActors===true);
       if(active&&motion.vehicle){
         const s=Math.sin(motion.yaw),c=Math.cos(motion.yaw),t=motion.y;
         const a=terrain.support(motion.x+s*1.5,motion.z-c*1.5,t)??t;

@@ -25,7 +25,15 @@ export function meshFrame(meshes,{x,y,z,yaw,pitch=0}){
   };
   return {point,part,right,up,forward,back};
 }
-export function drawCar(meshes,player,pitch=0){
+const packColor=hex=>parseInt(hex,16);
+// Car instances for the detailed renderer: position, yaw, pitch, wheel spin, paint, flags, steering.
+export function drawCar(meshes,player,pitch=0,spin=0,steer=0){
+  if(meshes.detailed){
+    const paint=player.wreck?'373638':player.paint??'477582';
+    (meshes.cars??=[]).push(player.x,player.y+(player.parked?.014:.119)-.02,player.z,player.yaw,pitch,spin,
+      packColor(paint),player.wreck?1:0,steer,0,0,0,0,0,0,0);
+    return;
+  }
   const {part,right,up,back}=meshFrame(meshes,{...player,y:player.y+(player.parked?.014:.119),pitch});
   const paint=player.wreck?'373638':player.paint??'477582';
   part('chamfer',0,.57,0,1.82,player.wreck?.45:.64,4.35,paint,player.wreck?58:25);
