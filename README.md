@@ -92,3 +92,12 @@ npm run test:cloud
 街路やマップを編集するときは `tools/layout.mjs`、`tools/build-world.mjs`、`dist/geography.js` を参照してください。地図データを公開済みの版から変更する場合は、地図のキャッシュを切り替えるため `WORLD_VERSION` と `dist/_headers` の区画パスを合わせて更新し、`npm run build:world` を実行してからデプロイします。
 
 素材の模様は `tools/build-materials.mjs` で編集できます。変更後は `npm run build:materials` で配信用データを生成します。
+
+## GitHub Pagesで公開する
+
+GitHub Pagesの公開元が「ブランチ（`main` の直下）」のままだと、ゲーム本体の `dist/` もワールドデータも公開されず、README.mdがトップページとして表示されます。
+
+1. リポジトリの **Settings → Pages → Build and deployment → Source** を **GitHub Actions** にします。
+2. **Actions** タブで **Deploy to GitHub Pages** を実行します。以後は `main` に反映するたびに `.github/workflows/pages.yml` がワールドデータを生成し、テストを通してから `dist/` を公開します。
+
+GitHub Pages版はサーバー処理のない「ブラウザ版」として動き、進行状況はブラウザに保存されます。なお、GitHubのリポジトリ画面でファイル一覧の下にREADME.mdが表示されるのはGitHubの標準の動作です。
