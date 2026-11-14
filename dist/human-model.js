@@ -73,7 +73,7 @@ function primitives(variant){
   }
   if(female){
     put(2,PART.hair,.03,cut(C([0,1.64,-.05],[0,1.43,-.064],.088,.07),p=>p[2]+.005));
-    put(2,PART.hair,.02,cut(E([0,1.62,-.02],[.093,.08,.09]),p=>1.58+.9*p[2]-p[1]));
+    put(2,PART.hair,.02,cut(cut(E([0,1.625,-.03],[.092,.08,.088]),p=>1.58+.9*p[2]-p[1]),p=>p[2]+.012));
   }
   return list;
 }
@@ -132,7 +132,7 @@ export function buildHuman(variant,detail=1){
     let bone=primitive.bone;
     if(primitive.part===PART.skirt||primitive.part===PART.coat){
       const side=p[0]>0?9:12,low=smoothstep(.95,.6,p[1])*clamp(Math.abs(p[0])/.08,0,1);
-      return [0,side,low*.55,primitive.part];
+      return [0,side,low*.35,primitive.part];
     }
     const [a,b,w]=weightsFor(p,bone);
     return [a,b,w,primitive.part];
@@ -162,8 +162,8 @@ Pose makePose(float phase,float gait,float stride,float pose,float time,float se
     float swing=pow(max(0.,sin(ph+.75)),1.5);
     P.knee[side]=gait*(mix(1.0,1.95,run)*swing+.22*pow(max(0.,cos(ph-3.45)),8.))+.04+run*.25;
     P.ankle[side]=gait*(.16*swing-.32*exp(-pow((w+.25)*1.7,2.))+.12*run);
-    P.arm[side]=-amp*mix(.9,1.25,run)*sin(ph)+run*.15;
-    P.elbow[side]=mix(.18,1.45,run)+gait*(.28-run*.2)*max(0.,-sin(ph));
+    P.arm[side]=-amp*mix(.9,.72,run)*sin(ph)+run*.12;
+    P.elbow[side]=mix(.18,1.3,run)+gait*(.28-run*.2)*max(0.,-sin(ph));
   }
   P.twist=-.11*amp*sin(phase);
   P.lean=mix(.02,.2,run)*gait+pose*.1;

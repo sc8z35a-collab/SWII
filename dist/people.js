@@ -1,4 +1,4 @@
-import {normalize,vectorCross} from './engine.js';
+import {normalize,vectorCross} from './vector.js';
 
 const profiles=[
   ['e0b28c','403a38','607e88','3c4755','faf0d6',1.73,.96],

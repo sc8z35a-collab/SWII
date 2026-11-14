@@ -1,4 +1,4 @@
-import {rad, normalize, vectorCross} from './engine.js';
+import {rad,normalize,vectorCross} from './vector.js';
 import {rioShore} from './geography.js';
 import {SIGNAL_COLORS,SIGNAL_GREEN,STREET_LAMP} from './street-lights.js';
 import {CERAMIC_SHELL} from './architecture-materials.js';

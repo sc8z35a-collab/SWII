@@ -84,10 +84,13 @@ vec3 oceanHorizon(vec3 color,vec3 d){
   if(uOcean<=0.||d.y>.002)return color;
   float toward=uOcean*smoothstep(.08,.41,dot(normalize(d.xz+1e-5),uOceanBearing));
   if(toward<=0.)return color;
-  float far=(max(uEye.y,0.)+4.)/max(-d.y,.0015);
+  float far=min((max(uEye.y,0.)+4.)/max(-d.y,.0015),20000.);
   vec2 p=uEye.xz+d.xz*far;
-  vec2 g=vec2(noise(p*.045+uTime*vec2(.08,.05)),noise(p*.045+vec2(7.1,3.3)-uTime*vec2(.05,.07)))-.5;
-  g+=(vec2(noise(p*.21+uTime*.3),noise(p*.21+vec2(2.,9.)-uTime*.25))-.5)*.5*smoothstep(1500.,150.,far);
+  // Wave detail fades with the pixel footprint so the pattern never aliases toward the horizon.
+  float footprint=length(fwidth(p));
+  float detail=1.-smoothstep(3.,12.,footprint);
+  vec2 g=(vec2(noise(p*.045+uTime*vec2(.08,.05)),noise(p*.045+vec2(7.1,3.3)-uTime*vec2(.05,.07)))-.5)*detail;
+  g+=(vec2(noise(p*.21+uTime*.3),noise(p*.21+vec2(2.,9.)-uTime*.25))-.5)*.5*(1.-smoothstep(.6,2.5,footprint));
   vec3 wn=normalize(vec3(g.x*.16,1.,g.y*.16));
   float NoV=max(dot(wn,-d),0.);
   float F=.02+.98*pow5(1.-NoV);
@@ -400,12 +403,13 @@ void main(){
     vec2 swell=vec2(sin(dot(p,vec2(.24,.49))+uTime*.66),cos(dot(p,vec2(.51,-.14))+uTime*.72));
     vec2 wave=vec2(sin(p.x*1.6+p.y*.8+uTime*1.3),cos(p.y*1.8-p.x*.9+uTime*1.1));
     vec2 ripple=vec2(noise(p*3.1+uTime*vec2(.9,.4))-.5,noise(p*3.1+vec2(5.,2.)-uTime*vec2(.5,.8))-.5);
-    vec2 slope=swell*.026+wave*.04*waves+ripple*.11*ripples;
+    float swells=1.-smoothstep(2.5,9.,footprint);
+    vec2 slope=swell*.026*swells+wave*.04*waves+ripple*.11*ripples;
     vec3 wn=normalize(vec3(slope.x,1.,slope.y));
     float NoV=max(dot(wn,v),1e-3);
     float F=.02+.98*pow5(1.-NoV);
     vec3 r=reflect(-v,wn);
-    vec3 reflection=cityReflection(r,.05);
+    vec3 reflection=environment(r,.04);
     vec3 body=toLinear(base)*.16*(uAmbUp*2.5+uSunColor*max(uSun.y,0.)*.35)*cloudShadow(wPos,uSun);
     float NoL=max(dot(wn,uSun),0.);
     vec3 h=normalize(v+uSun);

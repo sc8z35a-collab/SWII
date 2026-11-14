@@ -7,9 +7,8 @@ import {SKY_LUT_SIZE,skyLutFragment,skyModel} from './gfx-common.js';
 import {createPost} from './gfx-post.js';
 import {KIND_IDS,depthFragment,skyFragment,skyVertex,worldFragment,worldVertex} from './world-shader.js';
 import {createActorRenderer} from './actor-renderer.js';
-export const rad=Math.PI/180;
-const cross=(a,b)=>[a[1]*b[2]-a[2]*b[1],a[2]*b[0]-a[0]*b[2],a[0]*b[1]-a[1]*b[0]];
-const unit=a=>a.map(v=>v/(Math.hypot(...a)||1));
+import {rad,normalize as unit,vectorCross as cross} from './vector.js';
+export {rad};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
 export function view(eye,to){
   const z=unit(eye.map((v,i)=>v-to[i])),x=unit(cross([0,1,0],z)),y=cross(z,x);
@@ -154,15 +153,21 @@ const undergroundModel=light=>{
 export function createRenderer(canvas){
   const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance'});
   if(!gl)throw Error('WebGL 2 unavailable');
-  const floatColor=!!gl.getExtension('EXT_color_buffer_float');
+  let floatColor=!!gl.getExtension('EXT_color_buffer_float');
   const anisotropic=gl.getExtension('EXT_texture_filter_anisotropic');
   const mobile=matchMedia('(pointer:coarse)').matches;
   const main=compileProgram(gl,worldVertex,worldFragment);
   const depth=compileProgram(gl,worldVertex,depthFragment);
   const skies=compileProgram(gl,skyVertex,skyFragment);
   const skyLut=compileProgram(gl,fullscreenVertex,skyLutFragment);
-  const post=createPost(gl,{floatColor});
-  const actors=createActorRenderer(gl,{compileProgram,mobile});
+  let post=createPost(gl,{floatColor});
+  // Detailed actors are optional: without them the primitive figures are drawn instead.
+  let actors;
+  try{actors=createActorRenderer(gl,{compileProgram,mobile});}
+  catch(error){
+    console.info('Detailed actors unavailable',error.message);
+    actors={ready:false,update(){},draw(){},drawShadows(){}};
+  }
   const geometries={
     roof:faceMesh(roofFaces),chamfer:faceMesh(chamferFaces),taper:faceMesh(taperFaces),
     window:faceMesh(windowFaces),pane:faceMesh(paneFaces),tri:[0,0,0,0,1,0,1,0,0,0,1,0,0,0,1,0,1,0],
@@ -418,7 +423,7 @@ export function createRenderer(canvas){
 
   // Real skylight is whiter than single scattering suggests, and city streets also receive
   // warm light bounced from sunlit facades, so the ambient terms are partly neutralized.
-  const neutral=(c,amount=.45,gain=1.12)=>{
+  const neutral=(c,amount=.45,gain=1.55)=>{
     const l=c[0]*.2126+c[1]*.7152+c[2]*.0722;
     return c.map(v=>(l+(v-l)*(1-amount))*gain);
   };
@@ -428,10 +433,10 @@ export function createRenderer(canvas){
     gl.uniform3fv(u.SunColor,m.sunColor);
     const outdoor=!m.underground;
     gl.uniform3fv(u.AmbUp,outdoor?neutral(m.ambientUp):m.ambientUp);
-    gl.uniform3fv(u.AmbDown,m.ambientDown);
+    gl.uniform3fv(u.AmbDown,outdoor?m.ambientDown.map(v=>v*1.4):m.ambientDown);
     gl.uniform3fv(u.AmbSun,outdoor?neutral(m.ambientSun,.35):m.ambientSun);
     gl.uniform3fv(u.AmbAnti,outdoor?neutral(m.ambientAnti,.35):m.ambientAnti);
-    gl.uniform3fv(u.Bounce,outdoor?m.sunColor.map(v=>v*Math.max(m.sun[1],0)*.06):[0,0,0]);
+    gl.uniform3fv(u.Bounce,outdoor?m.sunColor.map(v=>v*Math.max(m.sun[1],0)*.075):[0,0,0]);
     gl.uniform3fv(u.GroundRad,m.groundRadiance);
     gl.uniform1f(u.Night,lighting.night);
     gl.uniform1f(u.Underground,m.underground?1:0);
@@ -515,7 +520,15 @@ export function createRenderer(canvas){
     const scale=quality==='low'?Math.min(dpi,.75):quality==='auto'?normalScale*autoScale:normalScale;
     const w=Math.max(1,Math.round(clientWidth*scale)),h=Math.max(1,Math.round(clientHeight*scale));
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-    post.resize(w,h);
+    try{post.resize(w,h);}
+    catch(error){
+      // Some drivers expose float color buffers but cannot attach them; fall back to 8-bit targets.
+      if(!floatColor)throw error;
+      console.info('Float render targets unavailable',error.message);
+      post.dispose();floatColor=false;
+      post=createPost(gl,{floatColor});
+      post.resize(w,h);
+    }
     const taa=quality!=='low'&&floatColor;
     const ssao=taa&&(quality==='high'||!mobile);
     const bloom=quality!=='low'&&floatColor;

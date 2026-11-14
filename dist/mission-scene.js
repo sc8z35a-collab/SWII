@@ -1,4 +1,4 @@
-import {normalize,vectorCross} from './engine.js';
+import {normalize,vectorCross} from './vector.js';
 import {meshFrame,drawCar} from './moving-models.js';
 import {humanInstance} from './people.js';
 import {DUST,EXHAUST,HEAT_METAL,IGNITION,LEATHER,LIFT_MATERIAL_OFFSET,PAPER,SHIELD_TILE,SHOCK,SOOT,SPIRIT} from './architecture-materials.js';

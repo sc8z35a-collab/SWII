@@ -24,7 +24,8 @@ precision highp int;
 ${instanceInputs}
 out vec3 wPos,wNormal,vBind;
 flat out vec3 vSkin,vHair,vTop,vBottom,vShoes;
-flat out float vStyle,vPart,vSeed;
+flat out float vStyle,vSeed;
+out vec4 vParts;
 ${humanAnimation}
 void main(){
   float yaw=aX.x,scale=aX.y,build=aX.z;
@@ -43,7 +44,9 @@ void main(){
   vBind=aPosition;
   vSkin=unpackColor(aZ.y);vHair=unpackColor(aZ.z);
   vTop=unpackColor(aStyle.x);vBottom=unpackColor(aStyle.y);vShoes=unpackColor(aStyle.z);
-  vStyle=aStyle.w;vPart=aExtra.w;vSeed=seed;
+  vStyle=aStyle.w;vSeed=seed;
+  int part=int(aExtra.w+.5);
+  vParts=vec4(part==1?1.:0.,part==4?1.:0.,part==2||part==3?1.:0.,part==5?1.:0.);
   gl_Position=uVP*vec4(wPos,1.);
 }`;
 
@@ -53,7 +56,8 @@ precision highp int;
 precision highp sampler2DShadow;
 in vec3 wPos,wNormal,vBind;
 flat in vec3 vSkin,vHair,vTop,vBottom,vShoes;
-flat in float vStyle,vPart,vSeed;
+flat in float vStyle,vSeed;
+in vec4 vParts;
 layout(location=0)out vec4 frag;
 ${glslLighting}
 vec3 lin(vec3 c){return pow(c,vec3(2.2));}
@@ -62,7 +66,9 @@ float line(float x,float w){return 1.-smoothstep(w*.5,w,abs(x));}
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
   if(dot(n,v)<-.2)n=-n;
-  int style=int(vStyle+.5),part=int(vPart+.5);
+  int style=int(vStyle+.5);
+  int variant=(style>>8)&3;
+  int part=vParts.x>.5?1:vParts.y>.5?4:vParts.z>.5?(variant==2?3:2):vParts.w>.5?5:0;
   bool longSleeve=(style&1)!=0,shorts=(style&2)!=0,jacket=(style&4)!=0,shirt=(style&8)!=0;
   bool glow=(style&16)!=0,pale=(style&32)!=0,bag=(style&128)!=0;
   vec3 b=vBind;
@@ -70,6 +76,14 @@ void main(){
   float footprint=length(fwidth(wPos));
   float fine=1.-smoothstep(.004,.02,footprint);
   int zone=0;
+  // Hairlines are drawn analytically in bind space so they stay smooth across triangles.
+  if(variant!=2&&b.y>1.52){
+    float hairline=1.632+.55*b.z;
+    float cap=smoothstep(-.004,.004,b.y-hairline);
+    float back=variant==1?step(b.z,.01)*step(1.42,b.y)*step(ax,.115):0.;
+    float sideburn=step(.07,ax)*step(b.z,.01)*step(1.6,b.y);
+    part=max(cap,max(back,sideburn))>.5?1:(part==1?0:part);
+  }else if(part==1)part=0;
   if(part==1)zone=4;
   else if(part==5)zone=5;
   else if(part==4)zone=3;
@@ -77,7 +91,8 @@ void main(){
   else if(part==3)zone=1;
   else{
     bool arm=ax>.192&&b.y>.66&&b.y<1.43;
-    float neckline=1.428-(shirt?.045*(1.-smoothstep(.0,.05,ax))*step(0.,b.z):.012*step(0.,b.z));
+    float collar=ax<.07?1.44-(shirt?.05*(1.-smoothstep(.0,.05,ax))*step(0.,b.z):.016*step(0.,b.z)):1.49;
+    float neckline=mix(collar,1.49,smoothstep(.055,.085,ax));
     if(b.y>neckline&&!arm)zone=0;
     else if(arm&&b.y<.885)zone=0;
     else if(arm)zone=(b.y>1.16||longSleeve)?1:0;
