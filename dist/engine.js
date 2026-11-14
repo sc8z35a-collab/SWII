@@ -432,7 +432,7 @@ export function createRenderer(canvas){
     gl.uniform3fv(u.Sun,m.sun);
     gl.uniform3fv(u.SunColor,m.sunColor);
     const outdoor=!m.underground;
-    gl.uniform3fv(u.AmbUp,outdoor?neutral(m.ambientUp):m.ambientUp);
+    gl.uniform3fv(u.AmbUp,outdoor?neutral(m.ambientUp,.6):m.ambientUp);
     gl.uniform3fv(u.AmbDown,outdoor?m.ambientDown.map(v=>v*1.4):m.ambientDown);
     gl.uniform3fv(u.AmbSun,outdoor?neutral(m.ambientSun,.35):m.ambientSun);
     gl.uniform3fv(u.AmbAnti,outdoor?neutral(m.ambientAnti,.35):m.ambientAnti);

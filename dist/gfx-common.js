@@ -206,7 +206,7 @@ vec3 linearToSrgb(vec3 c){
 vec3 grade(vec3 c){
   float l=luminance(c);
   c=mix(vec3(l),c,1.06);
-  vec3 shadows=vec3(.985,1.0,1.03),highlights=vec3(1.03,1.0,.965);
+  vec3 shadows=vec3(1.01,1.0,.985),highlights=vec3(1.035,1.0,.955);
   c*=mix(shadows,highlights,smoothstep(.05,.6,l));
   return max(c,0.);
 }

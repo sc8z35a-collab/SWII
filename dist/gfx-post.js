@@ -228,6 +228,21 @@ void main(){
   }
   if(uHasBloom>.5)color+=textureLod(uBloom,uv,0.).rgb*uBloomStrength;
   if(uSunScreen.w>0.){
+    // Sun shafts: march toward the sun and count open sky, so buildings and trees cut rays.
+    vec2 toSun=uSunScreen.xy-uv;
+    float reach=length(toSun*vec2(uTexel.y/uTexel.x,1.));
+    if(reach<1.1){
+      const int STEPS=20;
+      vec2 stepUV=toSun/float(STEPS);
+      vec2 t=uv+stepUV*ign(gl_FragCoord.xy);
+      float open=0.,weight=1.,total=0.;
+      for(int i=0;i<STEPS;i++){
+        float sky=textureLod(uDepth,clamp(t,vec2(0.),vec2(1.)),0.).r>=.99999?1.:0.;
+        open+=sky*weight;total+=weight;weight*=.94;t+=stepUV;
+      }
+      float shafts=open/total*pow(1.-smoothstep(.0,1.1,reach),2.);
+      color+=uSunTint*shafts*shafts*.2*uSunScreen.w;
+    }
     vec2 aspect=vec2(uTexel.y/uTexel.x,1.);
     float visible=0.;
     for(int i=0;i<5;i++){
