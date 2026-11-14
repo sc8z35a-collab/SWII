@@ -1,0 +1,29 @@
+name = "atlantis-game"
+main = "cloud/index.js"
+compatibility_date = "2026-11-09"
+workers_dev = true
+preview_urls = false
+
+[assets]
+directory = "./dist"
+binding = "ASSETS"
+run_worker_first = ["/api", "/api/*"]
+
+[[durable_objects.bindings]]
+name = "JOURNEYS"
+class_name = "Journey"
+
+[[migrations]]
+tag = "atlas-v1"
+new_sqlite_classes = ["Journey"]
+
+[[ratelimits]]
+name = "SESSION_GATE"
+namespace_id = "80463001"
+[ratelimits.simple]
+limit = 24
+period = 60
+
+[observability]
+enabled = true
+head_sampling_rate = 0.1

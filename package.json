@@ -1,0 +1,21 @@
+{
+  "name": "atlantis-cloudflare",
+  "version": "18.0.0",
+  "private": true,
+  "type": "module",
+  "engines": {
+    "node": ">=22"
+  },
+  "scripts": {
+    "build": "npm run build:materials && npm run build:world",
+    "build:materials": "node tools/build-materials.mjs",
+    "build:world": "node tools/build-world.mjs",
+    "test": "node --test test/*.test.mjs",
+    "test:cloud": "node --test test/cloud.integration.mjs",
+    "deploy": "wrangler deploy",
+    "dev:cloud": "node tools/dev.mjs"
+  },
+  "devDependencies": {
+    "wrangler": "4.159.0"
+  }
+}

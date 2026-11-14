@@ -1,0 +1,86 @@
+<!doctype html>
+<html lang="ja">
+<head>
+<meta charset="utf-8">
+<meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
+<meta name="theme-color" content="#111617">
+<meta name="description" content="アトランティス。散らばった本を集め、空から追いかけてくるゲルニカをかわす3Dサバイバル。">
+<title>ATLANTIS — アトランティス</title>
+<link rel="stylesheet" href="./style.css">
+<script type="module" src="./game.js"></script>
+</head>
+<body>
+<svg class="symbols" xmlns="http://www.w3.org/2000/svg">
+ <symbol id="i-logo" viewBox="0 0 48 48"><path d="M7 37 24 7l17 30H7Z"/><path d="M15 37 24 21l9 16M13 27h22M24 7v-4"/></symbol>
+ <symbol id="i-book" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="18" rx="2"/><circle cx="12" cy="11" r="3"/><path d="M9 17h6m-6-6h6"/></symbol>
+ <symbol id="i-settings" viewBox="0 0 24 24"><path d="M5 6h14M5 12h14M5 18h14"/><circle cx="9" cy="6" r="2" fill="currentColor"/><circle cx="15" cy="12" r="2" fill="currentColor"/><circle cx="10" cy="18" r="2" fill="currentColor"/></symbol>
+ <symbol id="i-arrow" viewBox="0 0 24 24"><path d="M4 12h15m-6-6 6 6-6 6"/></symbol>
+ <symbol id="i-close" viewBox="0 0 24 24"><path d="m6 6 12 12M18 6 6 18"/></symbol>
+ <symbol id="i-full" viewBox="0 0 24 24"><path d="M9 4H4v5m11-5h5v5M4 15v5h5m11-5v5h-5"/></symbol>
+ <symbol id="i-plane" viewBox="0 0 24 24"><path d="M22 2 15 22l-4-9-9-4 20-7ZM22 2 11 13"/></symbol>
+ <symbol id="i-car" viewBox="0 0 24 24"><path d="m4 11 2-5h12l2 5m-16 0-2 2v5h20v-5l-2-2ZM5 18v2m14-2v2M5 14h3m8 0h3"/></symbol>
+ <symbol id="i-train" viewBox="0 0 24 24"><rect x="5" y="3" width="14" height="15" rx="4"/><path d="M5 11h14m-7-8v8m-4 7-2 3m10-3 2 3M8 15h1m6 0h1"/></symbol>
+ <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></symbol>
+ <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="5"/><path d="M12 6v4"/></symbol>
+ <symbol id="i-phone" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="2"/><path d="M7 11v2m10-1h.1"/></symbol>
+</svg>
+<div id="stage">
+ <canvas id="scene" aria-label="3Dの街並み"></canvas>
+ <div id="look" aria-label="ドラッグして視点を動かす"></div>
+ <div id="shade"></div>
+ <div id="vignette"></div>
+ <header class="top" id="topBar">
+   <button class="brand" id="homeBtn" aria-label="タイトルへ"><span class="brand-mark"><svg><use href="#i-logo"/></svg></span><span><b>ATLANTIS</b></span></button>
+   <nav aria-label="ゲームメニュー">
+     <button class="nav-btn only-icon" data-panel="settings" aria-label="設定"><svg><use href="#i-settings"/></svg></button>
+   </nav>
+ </header>
+ <div id="service" data-mode="checking"><span class="service-dot"></span><span id="serviceLabel" role="status">接続を確認中</span><button id="cloudRetry" hidden>再読み込み</button></div>
+ <main id="intro">
+   <div class="intro-content">
+     <h1>ATLANTIS<span>.</span></h1>
+     <div class="intro-jp">街に散らばった本</div>
+     <p>路上の本を10冊拾い、塔の下の鳥居をくぐる。</p>
+     <div class="intro-actions">
+       <button class="action primary" id="start" disabled><svg><use href="#i-compass"/></svg><span id="startText">ゲームを始める</span><svg class="next"><use href="#i-arrow"/></svg></button>
+     </div>
+   </div>
+ </main>
+ <section id="hud" hidden aria-label="ゲーム画面">
+   <section id="missionHud" class="glass" data-phase="books" aria-label="目標">
+     <div class="mission-caption"><span id="missionIcon" aria-hidden="true"></span><span id="missionTitle">路上の本を探す</span><strong id="missionCount">0 / 10</strong></div>
+     <div class="mission-rule"><span id="missionProgress"></span></div>
+     <div id="missionHint">本に近づくと拾えます</div>
+   </section>
+   <div id="health" class="glass" aria-label="耐久力" hidden><span>耐久力</span><i></i><i></i><i></i><i></i></div>
+   <div id="threat" role="status" hidden></div>
+   <div class="compass" aria-label="現在の方角"><span id="compassText">N</span><div class="ticks"></div><b></b></div>
+   <div id="transportHud" hidden>
+     <span id="transportStatus" class="glass"></span>
+     <button id="transportBtn" class="glass" hidden></button>
+     <button id="surfaceBtn" class="glass" hidden>地上へ</button>
+   </div>
+   <div class="hud-bottom">
+     <div class="control-hint"><svg><use href="#i-mouse"/></svg><span id="controlHint">WASD 移動 · ドラッグ 視点</span></div>
+     <div class="hud-actions">
+       <button id="vehicleBtn" class="glass" aria-keyshortcuts="V"><svg><use href="#i-car"/></svg><span id="vehicleLabel">車に乗る</span></button>
+     </div>
+   </div>
+   <div class="touch-controls"><div id="joystick" aria-label="移動スティック"><div id="stick"></div></div><button id="runBtn" class="glass" aria-pressed="false">走る</button></div>
+   <div id="reticle"></div>
+ </section>
+ <div id="rotateNotice" class="glass"><svg><use href="#i-phone"/></svg> 横画面で広く見渡せます</div>
+ <dialog id="panel" aria-labelledby="panelTitle">
+   <div class="panel-head"><h2 id="panelTitle">設定</h2><button id="closePanel" class="nav-btn only-icon" aria-label="閉じる"><svg><use href="#i-close"/></svg></button></div>
+   <div id="panelBody"></div>
+ </dialog>
+ <div id="travel" hidden role="status"><div class="travel-inner"><svg aria-hidden="true"><use href="#i-compass"/></svg><strong>街を読み込み中</strong></div></div>
+ <div id="damage" aria-hidden="true"></div>
+ <div id="missionResult" hidden role="dialog" aria-modal="true" aria-labelledby="missionResultTitle">
+   <section class="result-card glass"><div id="missionResultIcon" aria-hidden="true"></div><h2 id="missionResultTitle"></h2><p id="missionResultText"></p><button id="restart" class="action primary"><svg><use href="#i-arrow"/></svg> もう一度プレイ</button></section>
+ </div>
+ <div id="toast" role="status" aria-live="polite"></div>
+ <div id="failure" hidden role="alert"><h2>3D画面を起動できませんでした</h2><p>3D描画に対応するブラウザで開き直してください。</p><button class="action primary" id="retry">再読み込み</button></div>
+</div>
+</body>
+</html>
