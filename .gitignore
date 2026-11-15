@@ -4,3 +4,4 @@ node_modules/
 .env*
 dist/world/
 dist/materials/*.bin
+.texture-cache/

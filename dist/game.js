@@ -23,6 +23,7 @@ import {missionData} from './mission-data.js';
 import {nearVehicle} from './driving.js';
 import {drawBirds} from './birds.js';
 import {createAudio} from './audio.js';
+import {loadGeneratedTextures} from './generated-textures.js';
 const $=id=>document.getElementById(id);
 const hardwareScene=$('scene');
 let scene=hardwareScene,rendererGeneration=0;
@@ -1086,6 +1087,11 @@ function useRenderer(canvas,next){
   void loadArchitectureMaterials().then(bytes=>{
     if(renderer===next)next.setMaterials(bytes);
   }).catch(error=>console.info('Architectural materials unavailable',error.message));
+  // Image-generated textures, when the skill has made them: phones get smaller layers.
+  if(next.setPhotoTextures)void loadGeneratedTextures({tile:coarsePointer.matches?256:save.quality==='high'?512:384}).then(photos=>{
+    if(photos&&renderer===next)next.setPhotoTextures(photos);
+    else for(const layer of photos?.layers??[])layer.close?.();
+  });
   meshKey='';hasMeshes=false;autoScale=1;frameTime=0;nextFrame=0;frameAverage=0;
   $('failure').hidden=true;
   updateStartButton();

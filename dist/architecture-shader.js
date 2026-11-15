@@ -7,8 +7,53 @@ const int surfaceMap[${materialLayers.length}]=int[](${materialLayers.join(',')}
 const vec3 surfaceScale[${surfaceProfiles.length}]=vec3[](${surfaceProfiles.map(({width,height,relief})=>
   `vec3(${width.toFixed(3)},${height.toFixed(3)},${relief.toFixed(4)})`).join(',')});
 
+// Image-generated textures (see generated-textures.js). uPhotoTable rows 0 and 1 list up to eight
+// texture layers per material (-1 for none), row 2 holds each layer's width in meters, tint and mean
+// linear luminance, and row 3 its roughness and relief. A building keeps one variant on every part:
+// the choice hashes its position on a 24 m grid. Terrain triangles always use the first layer.
+int photoLayer(int mat){
+  if(uPhotoReady<.5||mat<0||mat>=64)return -1;
+  vec4 a=texelFetch(uPhotoTable,ivec2(mat,0),0),b=texelFetch(uPhotoTable,ivec2(mat,1),0);
+  float count=a.x<0.?0.:a.y<0.?1.:a.z<0.?2.:a.w<0.?3.:b.x<0.?4.:b.y<0.?5.:b.z<0.?6.:b.w<0.?7.:8.;
+  if(count<1.)return -1;
+  int i=mat>=26&&mat<=28?0:int(floor(hash(floor(center.xz/24.)+vec2(float(mat)*7.31,3.7))*count*.9999));
+  return int(i==0?a.x:i==1?a.y:i==2?a.z:i==3?a.w:i==4?b.x:i==5?b.y:i==6?b.z:b.w);
+}
+vec3 photoMaterial(vec3 base,inout vec3 normal,int mat,int photo,float footprint,out float roughness,out float cavity){
+  vec4 info=texelFetch(uPhotoTable,ivec2(photo,2),0),surface=texelFetch(uPhotoTable,ivec2(photo,3),0);
+  bool ground=abs(normal.y)>.63||mat==1||mat==2||mat==9||(mat>=26&&mat<29)||(mat>=35&&mat<=38);
+  vec3 tangent=ground?vec3(1.,0.,0.):normalize(vec3(normal.z,0.,-normal.x)+vec3(1e-5,0.,0.));
+  vec3 up=ground?vec3(0.,0.,1.):vec3(0.,1.,0.);
+  // Image rows run downward, so walls read the texture with up pointing to the top of the photo.
+  vec2 uv=vec2(dot(wPos,tangent),-dot(wPos,up))/info.xy;
+  if(mat==14)uv=localPos.xz/info.xy;
+  if(mat==${CERAMIC_SHELL})uv=vec2(wPos.x,wPos.z-wPos.y*.48)/info.xy;
+  vec2 dx=dFdx(uv),dy=dFdy(uv);
+  vec3 photoColor=textureGrad(uPhotoMaps,vec3(uv,float(photo)),dx,dy).rgb;
+  float level=luminance(photoColor*photoColor);
+  float fine=1.-smoothstep(.029,.161,footprint);
+  if(uQuality>.5&&fine>.02){
+    // Relief from the photo's own light and shade: joints and pits are darker and sit lower.
+    float texel=1./float(textureSize(uPhotoMaps,0).x);
+    float across=luminance(textureGrad(uPhotoMaps,vec3(uv+vec2(texel,0.),float(photo)),dx,dy).rgb);
+    float vertical=luminance(textureGrad(uPhotoMaps,vec3(uv+vec2(0.,texel),float(photo)),dx,dy).rgb);
+    vec2 tilt=(vec2(across,vertical)-luminance(photoColor))*surface.y/(info.xy*texel)*fine*.9;
+    normal=normalize(normal-tangent*tilt.x+up*tilt.y);
+  }
+  float shade=level/max(info.w,.01);
+  cavity=mix(1.,.86+.14*smoothstep(.15,.9,shade),fine*.8+.2);
+  roughness=clamp(surface.x+(.5-min(shade,1.5)*.33)*.12,.12,.97);
+  // tint 0 keeps the photo's colors (nudged toward the building's brightness), tint 1 keeps only its
+  // light and shade on the building's own color.
+  vec3 natural=photoColor*clamp(pow(luminance(base*base)/max(info.w,.01),.15),.82,1.22);
+  vec3 colored=base*sqrt(min(shade,3.));
+  float macro=noise(wPos.xz*.071+wPos.y*.05)*.6+noise(wPos.xz*.23-wPos.y*.11)*.4;
+  return mix(natural,colored,info.z)*(.94+macro*.12);
+}
 vec3 facadeMaterial(vec3 base,inout vec3 normal,int mat,int era,float footprint,out float roughness,out float cavity){
   roughness=.72;cavity=1.;
+  int photo=photoLayer(mat==5&&era>=4?33:mat);
+  if(photo>=0)return photoMaterial(base,normal,mat,photo,footprint,roughness,cavity);
   int layer=mat>=0&&mat<${materialLayers.length}?surfaceMap[mat]:-1;
   if(mat==5&&era>=4)layer=4;
   if(uMaterialDetail<.5||layer<0)return base;

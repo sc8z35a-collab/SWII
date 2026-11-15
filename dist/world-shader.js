@@ -247,7 +247,9 @@ flat in vec3 center;
 flat in mat3 basis;
 uniform float uSignal,uMaterialDetail;
 uniform int uKind;
-uniform highp sampler2DArray uSurfaceMaps;
+uniform highp sampler2DArray uSurfaceMaps,uPhotoMaps;
+uniform highp sampler2D uPhotoTable;
+uniform float uPhotoReady;
 layout(location=0)out vec4 frag;
 ${glslLighting}
 ${vec4Table('eraProfiles',eraProfiles)}

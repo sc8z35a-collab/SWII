@@ -1,0 +1,115 @@
+{
+  "about": "Image-generated surface textures. Each sheet is one 1:1 image holding a 3x3 grid of nine textures (row by row). materials: world material ids that use the texture (the first texture listed for a material is its default; buildings pick among all of them). meters: real-world width of one tile. tint: 0 keeps the photo's colors, 1 keeps only its light and shade and takes the color of each building. roughness: base microsurface roughness. relief: bump strength in meters.",
+  "sheets": [
+    {"id": "surfaces-1", "title": "Existing surfaces: masonry, roofs and roads", "slots": [
+      {"id": "ashlar", "materials": [8, 20, 40], "meters": 3.2, "tint": 0.35, "roughness": 0.7, "relief": 0.012, "prompt": "dressed limestone ashlar wall, large rectangular blocks in regular courses with thin recessed mortar joints, pale warm grey"},
+      {"id": "brick", "materials": [13], "meters": 1.8, "tint": 0.25, "roughness": 0.78, "relief": 0.008, "prompt": "red clay brick wall in running bond with recessed light grey mortar, slight color variation between bricks"},
+      {"id": "concrete", "materials": [12, 52], "meters": 4.0, "tint": 0.4, "roughness": 0.74, "relief": 0.006, "prompt": "smooth cast-in-place architectural concrete wall with faint formwork tie holes and subtle stains, light grey"},
+      {"id": "stucco", "materials": [5, 11, 48], "meters": 2.2, "tint": 1.0, "roughness": 0.82, "relief": 0.003, "prompt": "fine sand-finish exterior stucco render, off-white, subtle trowel texture"},
+      {"id": "ceramic", "materials": [33], "meters": 1.6, "tint": 0.6, "roughness": 0.4, "relief": 0.004, "prompt": "square glazed ceramic wall tiles with narrow white grout lines, satin off-white glaze"},
+      {"id": "sandstone", "materials": [17], "meters": 3.0, "tint": 0.3, "roughness": 0.8, "relief": 0.008, "prompt": "warm buff sandstone block wall with soft weathered faces and bedding lines"},
+      {"id": "roof-tile", "materials": [14], "meters": 2.2, "tint": 0.35, "roughness": 0.7, "relief": 0.018, "prompt": "terracotta clay roof tiles in overlapping rows seen straight on from above, orange-red with weathering"},
+      {"id": "pavers", "materials": [1, 28, 38], "meters": 2.4, "tint": 0.35, "roughness": 0.78, "relief": 0.01, "prompt": "grey rectangular concrete sidewalk pavers in a herringbone pattern with sandy joints, top-down"},
+      {"id": "asphalt", "materials": [2, 27, 37], "meters": 3.0, "tint": 0.3, "roughness": 0.86, "relief": 0.0035, "prompt": "dark grey road asphalt with fine aggregate, top-down, no markings"}
+    ]},
+    {"id": "surfaces-2", "title": "Existing surfaces: metal, wood, stone and ground", "slots": [
+      {"id": "steel", "materials": [15, 25], "meters": 1.8, "tint": 0.5, "roughness": 0.45, "relief": 0.001, "prompt": "painted structural steel plate, satin grey-green paint with tiny chips and faint rust at edges"},
+      {"id": "wood", "materials": [24, 51], "meters": 1.2, "tint": 0.3, "roughness": 0.6, "relief": 0.004, "prompt": "weathered oak wood planks laid side by side, visible grain and narrow gaps, warm brown"},
+      {"id": "marble", "materials": [23], "meters": 3.0, "tint": 0.2, "roughness": 0.18, "relief": 0.0012, "prompt": "polished white Carrara marble slabs with soft grey veining and fine joints"},
+      {"id": "rubble", "materials": [18], "meters": 3.5, "tint": 0.3, "roughness": 0.9, "relief": 0.016, "prompt": "random rubble stone wall of irregular grey fieldstones with deep mortar joints"},
+      {"id": "soil", "materials": [9, 26], "meters": 2.6, "tint": 0.35, "roughness": 0.95, "relief": 0.007, "prompt": "dark brown garden soil with small pebbles and dry leaf bits, top-down"},
+      {"id": "setts", "materials": [16], "meters": 1.6, "tint": 0.3, "roughness": 0.8, "relief": 0.008, "prompt": "granite setts cobblestone paving in tight rows, grey and pinkish stones, top-down"},
+      {"id": "paint", "materials": [0], "meters": 1.6, "tint": 1.0, "roughness": 0.6, "relief": 0.0018, "prompt": "smooth painted metal or plaster surface with faint brush marks, plain light grey"},
+      {"id": "gravel", "materials": [35], "meters": 1.8, "tint": 0.35, "roughness": 0.92, "relief": 0.015, "prompt": "loose grey and beige crushed gravel path, top-down"},
+      {"id": "sand", "materials": [36], "meters": 2.8, "tint": 0.3, "roughness": 0.95, "relief": 0.006, "prompt": "fine golden desert sand with soft wind ripples, top-down"}
+    ]},
+    {"id": "surfaces-3", "title": "Existing surfaces: fabrics, tiles, foliage and mission metals", "slots": [
+      {"id": "linen", "materials": [41], "meters": 0.5, "tint": 1.0, "roughness": 0.88, "relief": 0.0016, "prompt": "close-up of plain woven linen fabric, visible weave, neutral light beige"},
+      {"id": "rubber", "materials": [42], "meters": 1.6, "tint": 0.8, "roughness": 0.9, "relief": 0.005, "prompt": "black rubber safety flooring with fine granules, top-down"},
+      {"id": "plaster", "materials": [43], "meters": 1.8, "tint": 1.0, "roughness": 0.85, "relief": 0.0015, "prompt": "interior plaster wall, smooth matte with very soft trowel marks, white"},
+      {"id": "glazed-tile", "materials": [44, 49], "meters": 1.2, "tint": 0.6, "roughness": 0.35, "relief": 0.0028, "prompt": "glossy rectangular subway tiles in stacked rows with grey grout, pale celadon green"},
+      {"id": "foliage", "materials": [6, 45], "meters": 1.2, "tint": 0.4, "roughness": 0.75, "relief": 0.006, "prompt": "dense tree canopy leaves filling the frame, varied greens with small dark gaps, evenly lit"},
+      {"id": "zinc", "materials": [46, 50, 53], "meters": 2.4, "tint": 0.4, "roughness": 0.5, "relief": 0.003, "prompt": "pre-weathered zinc standing seam cladding, vertical seams, soft blue-grey patina"},
+      {"id": "heat-metal", "materials": [54], "meters": 2.4, "tint": 0.3, "roughness": 0.4, "relief": 0.005, "prompt": "heat-tinted brushed stainless steel plates with blue and bronze temper colors and weld seams"},
+      {"id": "shield", "materials": [55], "meters": 3.2, "tint": 0.4, "roughness": 0.6, "relief": 0.018, "prompt": "heavy riveted armor plate panels, dark grey steel with scuffs and bolt heads"},
+      {"id": "leather", "materials": [56], "meters": 0.3, "tint": 1.0, "roughness": 0.55, "relief": 0.0011, "prompt": "close-up of a worn leather book cover, fine pebbled grain and creases, medium brown"}
+    ]},
+    {"id": "surfaces-4", "title": "Existing surfaces: paper, soot, lawns and street variants", "slots": [
+      {"id": "paper", "materials": [57], "meters": 0.4, "tint": 0.5, "roughness": 0.9, "relief": 0.0008, "prompt": "close-up of the edge of old book pages stacked tightly, cream paper"},
+      {"id": "soot", "materials": [58], "meters": 4.0, "tint": 0.4, "roughness": 0.95, "relief": 0.006, "prompt": "soot-blackened concrete with burn marks and ash streaks"},
+      {"id": "lawn", "materials": [47, 26], "meters": 2.0, "tint": 0.25, "roughness": 0.92, "relief": 0.006, "prompt": "healthy mowed lawn grass, dense green blades, top-down, even daylight"},
+      {"id": "lawn-dry", "materials": [47], "meters": 2.0, "tint": 0.25, "roughness": 0.93, "relief": 0.006, "prompt": "patchy dry summer lawn with yellowed grass and bare soil spots, top-down"},
+      {"id": "asphalt-worn", "materials": [2, 37], "meters": 3.0, "tint": 0.3, "roughness": 0.84, "relief": 0.004, "prompt": "worn grey asphalt road with sealed cracks and patched areas, top-down, no markings"},
+      {"id": "sidewalk-slabs", "materials": [1, 38], "meters": 2.4, "tint": 0.35, "roughness": 0.8, "relief": 0.008, "prompt": "square light grey concrete sidewalk slabs with expansion joints and light stains, top-down"},
+      {"id": "aluminum", "materials": [10], "meters": 1.2, "tint": 0.6, "roughness": 0.35, "relief": 0.001, "prompt": "anodized aluminum window frame profile surface, fine brushed lines, dark bronze"},
+      {"id": "terrazzo", "materials": [23], "meters": 2.0, "tint": 0.3, "roughness": 0.25, "relief": 0.001, "prompt": "polished terrazzo floor with white, grey and black marble chips in a light matrix"},
+      {"id": "mulch", "materials": [9], "meters": 1.6, "tint": 0.3, "roughness": 0.95, "relief": 0.01, "prompt": "brown wood chip mulch flower bed, top-down"}
+    ]},
+    {"id": "exteriors-brick-tile", "title": "Building exteriors: brick and tile cladding", "slots": [
+      {"id": "brick-english", "materials": [13], "meters": 1.8, "tint": 0.2, "roughness": 0.78, "relief": 0.008, "prompt": "deep red brick wall in English bond, alternating headers and stretchers, flush grey mortar"},
+      {"id": "brick-clinker", "materials": [13], "meters": 1.8, "tint": 0.2, "roughness": 0.7, "relief": 0.008, "prompt": "dark brown and purple clinker brick wall with glossy fired spots and dark mortar"},
+      {"id": "brick-white", "materials": [13], "meters": 1.8, "tint": 0.5, "roughness": 0.82, "relief": 0.007, "prompt": "white painted brick wall, paint slightly worn on brick edges"},
+      {"id": "brick-yellow", "materials": [13], "meters": 1.8, "tint": 0.2, "roughness": 0.8, "relief": 0.008, "prompt": "London yellow stock brick wall with sooty patches and lime mortar"},
+      {"id": "brick-modern", "materials": [13], "meters": 2.4, "tint": 0.25, "roughness": 0.72, "relief": 0.006, "prompt": "long thin modern Roman bricks in light grey with deeply raked horizontal joints"},
+      {"id": "brick-old", "materials": [13], "meters": 1.8, "tint": 0.2, "roughness": 0.86, "relief": 0.01, "prompt": "old weathered red brick wall with white efflorescence, chipped edges and eroded mortar"},
+      {"id": "tile-mosaic", "materials": [33, 44, 49], "meters": 1.0, "tint": 0.5, "roughness": 0.35, "relief": 0.002, "prompt": "small square white glass mosaic tiles on a building facade, slight color variation"},
+      {"id": "tile-scratch", "materials": [33, 44], "meters": 1.4, "tint": 0.3, "roughness": 0.7, "relief": 0.004, "prompt": "Japanese brown scratch-textured exterior wall tiles (sukura-cchi tairu), horizontal grooves, rectangular"},
+      {"id": "tile-green", "materials": [44, 49], "meters": 1.2, "tint": 0.3, "roughness": 0.3, "relief": 0.003, "prompt": "deep green glazed ceramic facade tiles with handmade irregular glaze, vertical stack bond"}
+    ]},
+    {"id": "exteriors-stone", "title": "Building exteriors: stone", "slots": [
+      {"id": "limestone", "materials": [8, 20, 40], "meters": 3.2, "tint": 0.3, "roughness": 0.72, "relief": 0.01, "prompt": "cream Portland limestone facade blocks with fine fossil texture and rain streaks"},
+      {"id": "granite-polished", "materials": [8, 20], "meters": 3.0, "tint": 0.2, "roughness": 0.25, "relief": 0.002, "prompt": "polished speckled grey granite facade panels with tight joints"},
+      {"id": "travertine", "materials": [8, 20, 23], "meters": 3.0, "tint": 0.2, "roughness": 0.6, "relief": 0.004, "prompt": "honed beige travertine facade slabs with natural holes and banding"},
+      {"id": "rusticated", "materials": [8, 40], "meters": 3.6, "tint": 0.3, "roughness": 0.8, "relief": 0.02, "prompt": "rusticated stone base of a classical building, deep V-cut joints between large grey blocks"},
+      {"id": "basalt", "materials": [20, 40], "meters": 2.8, "tint": 0.2, "roughness": 0.75, "relief": 0.008, "prompt": "dark charcoal basalt stone cladding in random rectangular sizes"},
+      {"id": "sandstone-red", "materials": [17], "meters": 3.0, "tint": 0.2, "roughness": 0.8, "relief": 0.008, "prompt": "red sandstone ashlar facade with visible bedding and weathering"},
+      {"id": "sandstone-honey", "materials": [17], "meters": 3.0, "tint": 0.2, "roughness": 0.8, "relief": 0.008, "prompt": "honey-colored Cotswold limestone blocks, rough-dressed faces"},
+      {"id": "marble-grey", "materials": [23], "meters": 3.0, "tint": 0.2, "roughness": 0.2, "relief": 0.0012, "prompt": "polished grey veined marble slabs, book-matched pattern"},
+      {"id": "marble-green", "materials": [23], "meters": 3.0, "tint": 0.2, "roughness": 0.2, "relief": 0.0012, "prompt": "polished dark green serpentine marble panels with white veins"}
+    ]},
+    {"id": "exteriors-concrete-render", "title": "Building exteriors: concrete and render", "slots": [
+      {"id": "concrete-board", "materials": [12, 52], "meters": 3.0, "tint": 0.3, "roughness": 0.78, "relief": 0.006, "prompt": "board-formed concrete wall showing horizontal wood plank imprints, grey"},
+      {"id": "concrete-precast", "materials": [12, 52], "meters": 4.5, "tint": 0.35, "roughness": 0.72, "relief": 0.006, "prompt": "precast concrete facade panels with sealed joints in a grid, light grey"},
+      {"id": "concrete-brutalist", "materials": [12], "meters": 3.0, "tint": 0.3, "roughness": 0.85, "relief": 0.01, "prompt": "bush-hammered brutalist concrete with exposed aggregate and vertical ribs"},
+      {"id": "concrete-weathered", "materials": [12, 52], "meters": 4.0, "tint": 0.35, "roughness": 0.82, "relief": 0.006, "prompt": "weathered concrete wall with dark rain streaks and patches of moss"},
+      {"id": "render-white", "materials": [5, 11, 48], "meters": 2.4, "tint": 1.0, "roughness": 0.8, "relief": 0.003, "prompt": "smooth white exterior render with faint hairline cracks"},
+      {"id": "render-cream", "materials": [5, 11, 48], "meters": 2.4, "tint": 1.0, "roughness": 0.82, "relief": 0.003, "prompt": "cream lime render with soft cloudy color variation"},
+      {"id": "stucco-trowel", "materials": [5, 43], "meters": 2.0, "tint": 1.0, "roughness": 0.84, "relief": 0.004, "prompt": "Spanish knockdown trowel stucco texture, irregular flattened swirls, white"},
+      {"id": "render-terracotta", "materials": [5, 48], "meters": 2.4, "tint": 0.6, "roughness": 0.84, "relief": 0.003, "prompt": "terracotta pigmented render wall, slightly faded, Mediterranean"},
+      {"id": "pebbledash", "materials": [5, 43], "meters": 1.8, "tint": 1.0, "roughness": 0.9, "relief": 0.008, "prompt": "pebbledash roughcast wall, small pebbles embedded in render, light beige"}
+    ]},
+    {"id": "exteriors-metal", "title": "Building exteriors: metal cladding", "slots": [
+      {"id": "aluminum-composite", "materials": [46, 50, 53, 15], "meters": 3.0, "tint": 0.4, "roughness": 0.3, "relief": 0.002, "prompt": "silver aluminum composite cladding panels with crisp dark reveals in a grid"},
+      {"id": "corrugated", "materials": [25, 15], "meters": 2.0, "tint": 0.4, "roughness": 0.5, "relief": 0.012, "prompt": "galvanized corrugated steel sheet cladding, vertical ribs, light grey"},
+      {"id": "copper-patina", "materials": [50, 46], "meters": 2.4, "tint": 0.15, "roughness": 0.55, "relief": 0.003, "prompt": "copper standing seam cladding with blue-green verdigris patina and brown areas"},
+      {"id": "zinc-seam", "materials": [46, 53], "meters": 2.4, "tint": 0.3, "roughness": 0.45, "relief": 0.004, "prompt": "anthracite grey zinc standing seam facade with sharp vertical seams"},
+      {"id": "perforated", "materials": [25, 53], "meters": 1.6, "tint": 0.4, "roughness": 0.4, "relief": 0.004, "prompt": "perforated aluminum facade screen with a regular grid of round holes over a dark backing"},
+      {"id": "corten", "materials": [15, 25], "meters": 2.4, "tint": 0.15, "roughness": 0.7, "relief": 0.003, "prompt": "Cor-ten weathering steel panels, deep orange-brown rust patina, mottled"},
+      {"id": "stainless", "materials": [15], "meters": 2.0, "tint": 0.3, "roughness": 0.3, "relief": 0.001, "prompt": "brushed stainless steel panels with fine horizontal brushing and seams"},
+      {"id": "anodized-dark", "materials": [50], "meters": 2.4, "tint": 0.3, "roughness": 0.35, "relief": 0.002, "prompt": "dark bronze anodized aluminum facade panels with vertical joints"},
+      {"id": "louvers", "materials": [25], "meters": 1.6, "tint": 0.5, "roughness": 0.45, "relief": 0.01, "prompt": "painted steel horizontal sunshade louvers in a row, charcoal grey"}
+    ]},
+    {"id": "exteriors-wood-roof", "title": "Building exteriors: wood siding and roofs", "slots": [
+      {"id": "cedar-siding", "materials": [51, 24], "meters": 1.6, "tint": 0.2, "roughness": 0.65, "relief": 0.005, "prompt": "vertical cedar board siding with narrow battens, warm reddish-brown natural wood"},
+      {"id": "charred-wood", "materials": [51], "meters": 1.6, "tint": 0.15, "roughness": 0.8, "relief": 0.008, "prompt": "Japanese yakisugi charred cedar siding, black alligator-crackled surface"},
+      {"id": "painted-boards", "materials": [51], "meters": 1.6, "tint": 1.0, "roughness": 0.6, "relief": 0.006, "prompt": "horizontal clapboard siding painted white with slightly peeling paint"},
+      {"id": "shingles", "materials": [51], "meters": 1.4, "tint": 0.25, "roughness": 0.75, "relief": 0.008, "prompt": "weathered silver-grey timber shingle wall cladding, overlapping rows"},
+      {"id": "roof-clay-red", "materials": [14], "meters": 2.2, "tint": 0.2, "roughness": 0.65, "relief": 0.02, "prompt": "red Spanish clay barrel roof tiles in rows, top-down, sun-faded"},
+      {"id": "roof-slate", "materials": [14], "meters": 2.0, "tint": 0.2, "roughness": 0.55, "relief": 0.012, "prompt": "dark grey natural slate roof tiles in overlapping rows, top-down"},
+      {"id": "roof-shingle", "materials": [14], "meters": 2.0, "tint": 0.3, "roughness": 0.85, "relief": 0.01, "prompt": "charcoal asphalt roof shingles with granular texture, top-down"},
+      {"id": "roof-kawara", "materials": [14], "meters": 2.2, "tint": 0.2, "roughness": 0.45, "relief": 0.02, "prompt": "Japanese kawara silver-grey glazed roof tiles, rounded rows, top-down"},
+      {"id": "roof-sedum", "materials": [14], "meters": 2.4, "tint": 0.2, "roughness": 0.9, "relief": 0.012, "prompt": "green sedum roof with mixed red and green succulent plants, top-down"}
+    ]},
+    {"id": "exteriors-streets", "title": "Exteriors: streets, paths and plazas", "slots": [
+      {"id": "cobblestone", "materials": [16], "meters": 1.8, "tint": 0.25, "roughness": 0.78, "relief": 0.01, "prompt": "rounded grey cobblestones in arcs (fan pattern), polished tops, top-down"},
+      {"id": "granite-slabs", "materials": [1, 28, 38], "meters": 3.0, "tint": 0.3, "roughness": 0.75, "relief": 0.006, "prompt": "large flamed grey granite paving slabs in a plaza, tight joints, top-down"},
+      {"id": "brick-paving", "materials": [1, 28], "meters": 2.0, "tint": 0.25, "roughness": 0.78, "relief": 0.008, "prompt": "red clay brick paving in basketweave pattern, top-down"},
+      {"id": "interlocking", "materials": [28, 38], "meters": 2.0, "tint": 0.3, "roughness": 0.8, "relief": 0.008, "prompt": "interlocking grey concrete pavers in a zigzag pattern, top-down"},
+      {"id": "pea-gravel", "materials": [35], "meters": 1.6, "tint": 0.3, "roughness": 0.9, "relief": 0.012, "prompt": "rounded multicolored pea gravel, top-down"},
+      {"id": "clay-path", "materials": [36], "meters": 2.4, "tint": 0.3, "roughness": 0.95, "relief": 0.005, "prompt": "compacted reddish clay park path with fine grit, top-down"},
+      {"id": "mossy-cobbles", "materials": [16], "meters": 1.8, "tint": 0.25, "roughness": 0.85, "relief": 0.01, "prompt": "old square granite cobbles with moss growing in the joints, top-down"},
+      {"id": "stamped-concrete", "materials": [1, 38], "meters": 2.4, "tint": 0.35, "roughness": 0.72, "relief": 0.006, "prompt": "broom-finished concrete sidewalk with tooled square joints, top-down"},
+      {"id": "asphalt-fresh", "materials": [2, 37], "meters": 3.0, "tint": 0.25, "roughness": 0.82, "relief": 0.003, "prompt": "fresh black asphalt with uniform fine aggregate, top-down, no markings"}
+    ]}
+  ]
+}

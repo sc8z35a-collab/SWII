@@ -9,6 +9,7 @@ import {KIND_IDS,depthFragment,skyFragment,skyVertex,worldFragment,worldVertex} 
 import {createActorRenderer} from './actor-renderer.js';
 import {rad,normalize as unit,vectorCross as cross} from './vector.js';
 import {compileProgram,whenCompiled} from './gl-program.js';
+import {PHOTO_TABLE_ROWS,PHOTO_TABLE_WIDTH} from './generated-textures.js';
 export {rad};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
 export function view(eye,to){
@@ -223,6 +224,18 @@ export function createRenderer(canvas,{wait=true}={}){
   gl.texStorage2D(gl.TEXTURE_2D,1,gl.DEPTH_COMPONENT16,1,1);
   gl.activeTexture(gl.TEXTURE0);
   let surfacesReady=false,materialUpload=null;
+  // Image-generated textures: a layer array and a small float table (see generated-textures.js).
+  // 1x1 placeholders keep the samplers valid until the textures arrive.
+  let photoTexture=gl.createTexture(),photoUpload=null,photoReady=false;
+  gl.activeTexture(gl.TEXTURE5);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY,photoTexture);
+  gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,1,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([128,128,128,255]));
+  const photoTable=gl.createTexture();
+  gl.activeTexture(gl.TEXTURE6);
+  gl.bindTexture(gl.TEXTURE_2D,photoTable);
+  gl.texStorage2D(gl.TEXTURE_2D,1,gl.RGBA32F,PHOTO_TABLE_WIDTH,PHOTO_TABLE_ROWS);
+  for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST]])gl.texParameteri(gl.TEXTURE_2D,k,v);
+  gl.activeTexture(gl.TEXTURE0);
   let paneData=new Float32Array(0);
   let scene=[],sceneSet=new Set(),residentBytes=0,renderedFrames=0,detailRadius=227,viewRadius=435;
   let quality='auto',autoScale=1,previousWalkers;
@@ -322,6 +335,33 @@ export function createRenderer(canvas,{wait=true}={}){
         Math.min(mobile?4:8,gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
       gl.deleteTexture(surfaceTexture);
       surfaceTexture=job.texture;materialUpload=null;surfacesReady=true;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // A few photo layers per frame, then mipmaps; the table switches them on in one step.
+  function continuePhotoUpload(){
+    const job=photoUpload;
+    gl.activeTexture(gl.TEXTURE7);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY,job.texture);
+    for(let n=0;n<3&&job.next<job.layers.length;n++,job.next++){
+      const image=job.layers[job.next];
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,job.next,job.tile,job.tile,1,gl.RGBA,gl.UNSIGNED_BYTE,image);
+      image.close?.();job.layers[job.next]=null;
+    }
+    if(job.next>=job.layers.length){
+      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_T,gl.REPEAT);
+      if(anisotropic)gl.texParameterf(gl.TEXTURE_2D_ARRAY,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,
+        Math.min(mobile?4:8,gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      gl.activeTexture(gl.TEXTURE6);
+      gl.bindTexture(gl.TEXTURE_2D,photoTable);
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,PHOTO_TABLE_WIDTH,PHOTO_TABLE_ROWS,gl.RGBA,gl.FLOAT,job.table);
+      gl.deleteTexture(photoTexture);
+      photoTexture=job.texture;photoUpload=null;photoReady=true;
     }
     gl.activeTexture(gl.TEXTURE0);
   }
@@ -538,6 +578,7 @@ export function createRenderer(canvas,{wait=true}={}){
   function render(eye,to,lighting,time,walkers,arrival,signal=SIGNAL_GREEN,options={}){
     renderedFrames++;frameIndex++;
     if(materialUpload)continueMaterialUpload();
+    if(photoUpload)continuePhotoUpload();
     const fov=options.fov?clampFov(options.fov)*rad:FOV;
     // A single dynamic light per frame, for example an explosion: {position, intensity, color}.
     const light=options.light;
@@ -622,6 +663,10 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.bindTexture(gl.TEXTURE_2D_ARRAY,surfaceTexture);
     gl.activeTexture(gl.TEXTURE3);
     gl.bindTexture(gl.TEXTURE_2D,skyTexture);
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY,photoTexture);
+    gl.activeTexture(gl.TEXTURE6);
+    gl.bindTexture(gl.TEXTURE_2D,photoTable);
     gl.activeTexture(gl.TEXTURE0);
     useWorldProgram(main);
     sendLighting(main.u,lighting,time,shadows);
@@ -629,6 +674,9 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform3fv(main.u.Eye,eye);
     gl.uniform1f(main.u.Signal,signal);
     gl.uniform1i(main.u.SurfaceMaps,1);
+    gl.uniform1i(main.u.PhotoMaps,5);
+    gl.uniform1i(main.u.PhotoTable,6);
+    gl.uniform1f(main.u.PhotoReady,photoReady?1:0);
     gl.uniform1f(main.u.MaterialDetail,surfacesReady?(quality==='low'?1:2):0);
     drawBatches(front,planes,eye);
     for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
@@ -702,6 +750,19 @@ export function createRenderer(canvas,{wait=true}={}){
       gl.activeTexture(gl.TEXTURE0);
       materialUpload={texture,bytes,next:0};
     },
+    // photos: {tile, layers: ImageBitmap-like sources tile x tile, table: Float32Array} from
+    // loadGeneratedTextures(). The layers go up three per frame.
+    setPhotoTextures({tile,layers,table}){
+      if(!layers?.length)return;
+      if(photoUpload)gl.deleteTexture(photoUpload.texture);
+      const texture=gl.createTexture();
+      gl.activeTexture(gl.TEXTURE7);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY,texture);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY,Math.floor(Math.log2(tile))+1,gl.RGBA8,tile,tile,layers.length);
+      gl.activeTexture(gl.TEXTURE0);
+      photoUpload={texture,tile,layers:[...layers],table,next:0};
+    },
+    get photoTextures(){return photoReady;},
     setQuality(value){
       quality=value;autoScale=1;shadowDirty=true;
       for(const cascade of cascades)cascade.key='';
@@ -724,8 +785,9 @@ export function createRenderer(canvas,{wait=true}={}){
       for(const actor of Object.values(people)){gl.deleteVertexArray(actor.mesh.vao);gl.deleteBuffer(actor.buffer);}
       gl.deleteVertexArray(paneMesh.vao);gl.deleteBuffer(paneBuffer);
       for(const shape of Object.values(geometry)){gl.deleteBuffer(shape.buffer);gl.deleteBuffer(shape.elements);}
-      for(const texture of [surfaceTexture,skyTexture,placeholderShadow,shadowBuffer?.texture,materialUpload?.texture])if(texture)gl.deleteTexture(texture);
-      materialUpload=null;
+      for(const texture of [surfaceTexture,skyTexture,placeholderShadow,shadowBuffer?.texture,materialUpload?.texture,
+        photoTexture,photoTable,photoUpload?.texture])if(texture)gl.deleteTexture(texture);
+      materialUpload=null;photoUpload=null;
       for(const framebuffer of [skyFramebuffer,shadowBuffer?.framebuffer])if(framebuffer)gl.deleteFramebuffer(framebuffer);
       for(const sampler of [compareSampler,rawSampler])gl.deleteSampler(sampler);
       for(const program of [main,depth,skies,skyLut])try{gl.deleteProgram(program.program);}catch{}
