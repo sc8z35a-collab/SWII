@@ -60,7 +60,33 @@ function hashOf(n){
 export function humanInstance(out,{x,y,z,yaw,scale,build,phase,gait,stride,reach=0,skin,hair,top,bottom,shoe,style}){
   out.push(x,y,z,yaw,scale,build,phase,gait,stride,reach,pack(skin),pack(hair),pack(top),pack(bottom),pack(shoe),style);
 }
-function detailedPeople(people,seconds,eye,out,groundAt){
+// Nearby pedestrians glance at the viewer: the head turns (up to 60 degrees) and eases back when
+// they pass. Returns style bits 10-18 for the skinned renderer.
+const looks=new Map();
+function lookBits(id,x,z,yaw,eye,seconds){
+  const state=looks.get(id)??{angle:0,weight:0,time:seconds};
+  const dt=clamp(seconds-state.time,0,.25);
+  state.time=seconds;
+  const dx=eye[0]-x,dz=eye[2]-z,distance=Math.hypot(dx,dz);
+  const angle=Math.atan2(-dx*Math.cos(yaw)-dz*Math.sin(yaw),dx*Math.sin(yaw)-dz*Math.cos(yaw));
+  const wanted=distance<6.5&&distance>.4&&Math.abs(angle)<1.9;
+  state.angle+=((wanted?clamp(angle,-1.05,1.05):0)-state.angle)*(1-Math.exp(-dt*4.5));
+  state.weight+=((wanted?1:0)-state.weight)*(1-Math.exp(-dt*3));
+  looks.set(id,state);
+  if(state.weight<.04)return 0;
+  return clamp(Math.round((state.angle/1.05+1)*31)+1,1,63)<<10|Math.round(state.weight*7)<<16;
+}
+// People keep out of the viewer's way: within a meter and a half they drift aside from their path.
+function stepAside(x,z,eye,radius=1.5){
+  const dx=x-eye[0],dz=z-eye[2],distance=Math.hypot(dx,dz);
+  if(!(radius>0))return [x,z];
+  if(distance>=radius||distance<1e-3)return [x,z];
+  const push=(radius-distance)*.8/distance;
+  return [x+dx*push,z+dz*push];
+}
+// focus: where the player actually is ({x,y,z,radius}); people look at it and keep clear of it.
+function detailedPeople(people,seconds,eye,out,groundAt,focus){
+  const target=focus?[focus.x,focus.y??eye[1],focus.z]:eye,clearance=focus?.radius??1.5;
   const humans=[];
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;
@@ -80,7 +106,9 @@ function detailedPeople(people,seconds,eye,out,groundAt){
     if((h>>>8)%10<3)style|=4;
     else if((h>>>8)%10<6)style|=8;
     if((h>>>12)%3===0)style|=128;
-    humanInstance(humans,{x,y,z,yaw:pose.yaw,scale,build:female?build*.94:build,
+    style|=lookBits(person.id,x,z,pose.yaw,target,seconds);
+    const [ax,az]=stepAside(x,z,target,clearance);
+    humanInstance(humans,{x:ax,y,z:az,yaw:pose.yaw,scale,build:female?build*.94:build,
       phase:pose.walked/(stride*scale)*Math.PI*2+person.id*1.7,gait:walk,stride,
       skin,hair:female&&(h>>>14)%3===0?['6b4a32','2a2420','a07850'][(h>>>16)%3]:hair,
       top:(h>>>18)%3===0?shirt:tops[(h>>>3)%tops.length],bottom:female&&(h>>>20)%2?tops[(h>>>9)%tops.length]:(h>>>21)%2?pants:bottoms[(h>>>6)%bottoms.length],
@@ -89,8 +117,8 @@ function detailedPeople(people,seconds,eye,out,groundAt){
   out.humans=humans;
   return out;
 }
-export function peopleMeshes(people,seconds,eye,groundAt,detailed=false){
-  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true},groundAt);
+export function peopleMeshes(people,seconds,eye,groundAt,detailed=false,focus=null){
+  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true},groundAt,focus);
   const out={box:[],chamfer:[],tube:[],ball:[]};
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;

@@ -1,5 +1,5 @@
 import {normalize,vectorCross} from './vector.js';
-import {meshFrame,drawCar} from './moving-models.js';
+import {meshFrame,drawCar,CAR_BRAKE,CAR_REVERSE} from './moving-models.js';
 import {humanInstance} from './people.js';
 import {DUST,EXHAUST,HEAT_METAL,IGNITION,LEATHER,LIFT_MATERIAL_OFFSET,PAPER,SHIELD_TILE,SHOCK,SOOT,SPIRIT} from './architecture-materials.js';
 import {CANNON_DROP,CANNON_PITCH,EVACUATION_MS,launchHeight,launchSite} from './mission-layout.js';
@@ -70,6 +70,8 @@ function drawBook(meshes,book,now){
   m('ball',.025,.147,.01,.037*(1+Math.sin(now*5)*.23),.037,.037,'f8cc74',IGNITION);
 }
 const gaits=new Map();
+// The current gait phase of a drawn pursuer (feet strike near phase pi/2 and 3pi/2), or null.
+export const enemyGait=actor=>gaits.get(actor.id??actor.name)?.phase??null;
 function gaitPhase(actor,stride){
   // Integrate the phase from walked distance so a stride change keeps the legs where they are.
   const key=actor.id??actor.name,last=gaits.get(key);
@@ -121,9 +123,9 @@ function copyAssembly(meshes,lift){
   for(const [kind,data] of Object.entries(assembly)){
     if(!data.length)continue;
     const out=meshes[kind]??=[];
-    for(let i=0;i<data.length;i+=16){
-      const p=data.slice(i,i+16);p[1]+=lift;p[15]+=LIFT_MATERIAL_OFFSET;out.push(...p);
-    }
+    let n=out.length;
+    out.length=n+data.length;
+    for(let i=0;i<data.length;i++)out[n++]=data[i]+(i%16===1?lift:i%16===15?LIFT_MATERIAL_OFFSET:0);
   }
 }
 function makeFoundation(meshes,lift,close){
@@ -296,11 +298,12 @@ function blastEffects(effects,blast,low){
   }
 }
 function effectsToMesh(meshes,effects,eye){
-  const distance=p=>delta(p.point,eye);
-  effects.sort((a,b)=>distance(b)-distance(a));
+  // Back to front for blending; each distance is measured once instead of in every comparison.
+  for(const effect of effects)effect.distance=delta(effect.point,eye);
+  effects.sort((a,b)=>b.distance-a.distance);
   const out=meshes.effect??=[];
-  for(const {point,size,paint,alpha,kind,axis,length} of effects){
-    if(delta(eye,point)>1150)continue;
+  for(const {point,size,paint,alpha,kind,axis,length,distance} of effects){
+    if(distance>1150)continue;
     const sight=normalize(vector(point,eye));
     let right=normalize(vectorCross(axis??[0,1,0],sight));
     if(Math.hypot(...right)<.01)right=[1,0,0];
@@ -355,13 +358,56 @@ export function drawMission(meshes,mission,eye,now,low=false,groundAt){
   effectsToMesh(meshes,effects,eye);
 }
 
+// The strongest light the mission casts on the scene near the camera: a fresh explosion, or the
+// launch engines while the plaza is still close to the ground. Returns null when there is none.
+export function missionLight(mission,eye,now){
+  let best=null;
+  const consider=(position,intensity,color)=>{
+    if(intensity<=0)return;
+    const d=delta(eye,position),score=intensity/(d*d+40);
+    if(d<420&&(!best||score>best.score))best={score,position,intensity,color};
+  };
+  for(const blast of mission.blasts??[]){
+    const t=blast.age/1000;
+    if(t<.9)consider([blast.x,blast.y+2.4,blast.z],950*(1-smooth(t/.9))*Math.min(1,t/.05+.25),[1,.56,.24]);
+  }
+  if(mission.phase&&mission.phase!=='books'&&mission.phase!=='escaped'){
+    const lift=mission.lift??launchHeight(mission.phase,mission.elapsed);
+    const spool=mission.phase==='evacuate'?smooth((mission.elapsed-EVACUATION_MS+3600)/3600):0;
+    const thrust=mission.phase==='ascent'?1:Math.max(spool,lift===launchSite.lift?.28:0);
+    const flicker=.92+.05*Math.sin(now*26)+.03*Math.sin(now*61);
+    consider([x,floor+lift-19,z],5200*thrust*flicker*(1-smooth((lift-60)/260)),[1,.62,.3]);
+  }
+  return best&&{position:best.position,intensity:best.intensity,color:best.color};
+}
+
 let odometer={id:null,x:0,z:0,spin:0};
-export function updateVehicleModel(meshes,player,pitch){
+let suspension={id:null,time:null,speed:0,yaw:0,pitch:0,roll:0,steer:0};
+const wrapAngle=a=>Math.atan2(Math.sin(a),Math.cos(a));
+// The driven car: wheels turn with the distance covered and steer with the input, the lights follow
+// the pedals, and the body pitches under acceleration and braking and leans out of turns.
+export function updateVehicleModel(meshes,player,pitch,input={},now=performance.now()){
   const car=missionData.cars[player.vehicleId];
   if(odometer.id!==player.vehicleId)odometer={id:player.vehicleId,x:player.x,z:player.z,spin:0};
   const s=Math.sin(player.yaw),c=Math.cos(player.yaw);
   const forward=(player.x-odometer.x)*s-(player.z-odometer.z)*c;
   odometer.spin=(odometer.spin+forward/.335)%(Math.PI*2);
   odometer.x=player.x;odometer.z=player.z;
-  drawCar(meshes,{...player,paint:car?.paint},pitch,odometer.spin);
+  const speed=player.vx*s-player.vz*c;
+  if(suspension.id!==player.vehicleId||suspension.time===null)
+    suspension={id:player.vehicleId,time:now,speed,yaw:player.yaw,pitch:0,roll:0,steer:0};
+  const dt=clamp((now-suspension.time)/1000,0,.25);
+  if(dt>0){
+    const accel=clamp((speed-suspension.speed)/dt,-16,10),turn=wrapAngle(player.yaw-suspension.yaw)/dt;
+    const settle=1-Math.exp(-dt*7);
+    suspension.pitch+=(clamp(accel*.0019,-.026,.018)-suspension.pitch)*settle;
+    suspension.roll+=(clamp(-turn*speed*.0036,-.034,.034)-suspension.roll)*settle;
+    suspension.steer+=((input.steer??0)*.46-suspension.steer)*(1-Math.exp(-dt*11));
+  }
+  suspension.time=now;suspension.speed=speed;suspension.yaw=player.yaw;
+  const throttle=input.throttle??0;
+  const braking=input.brake||throttle*speed<-.05;
+  const reversing=speed<-.3||throttle<0&&speed<.3;
+  drawCar(meshes,{...player,paint:car?.paint},pitch,odometer.spin,suspension.steer,
+    {lights:(braking?CAR_BRAKE:0)|(reversing?CAR_REVERSE:0),bodyPitch:suspension.pitch,bodyRoll:suspension.roll});
 }
