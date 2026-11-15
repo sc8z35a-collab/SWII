@@ -18,6 +18,7 @@ function product(a,b){
   return new Float32Array(b.map((_,i)=>a[i%4]*b[i-i%4]+a[i%4+4]*b[i-i%4+1]+a[i%4+8]*b[i-i%4+2]+a[i%4+12]*b[i-i%4+3]));
 }
 const NEAR=.12,FAR=1220,FOV=61*rad;
+export const LIGHT_LINES=400;
 function perspective(ratio){
   const k=1/Math.tan(FOV/2);
   return [k/ratio,0,0,0,0,k,0,0,0,0,(NEAR+FAR)/(NEAR-FAR),-1,0,0,2*NEAR*FAR/(NEAR-FAR),0];
@@ -189,6 +190,11 @@ export function createRenderer(canvas){
     const buffer=gl.createBuffer();
     return [kind,{buffer,mesh:instanceMesh(kind,buffer,0,0),scratch:new Float32Array(0)}];
   }));
+  // Things held in front of the camera are rebuilt every frame, apart from the other actors.
+  const held=Object.fromEntries(actorKinds.filter(kind=>kind!=='effect').map(kind=>{
+    const buffer=gl.createBuffer();
+    return [kind,{buffer,mesh:instanceMesh(kind,buffer,0,0),scratch:new Float32Array(0)}];
+  }));
   const paneBuffer=gl.createBuffer(),paneMesh=instanceMesh('pane',paneBuffer,0,0);
   const surfaceTexture=gl.createTexture();
   gl.activeTexture(gl.TEXTURE1);
@@ -327,6 +333,21 @@ export function createRenderer(canvas){
       gl.bufferSubData(gl.ARRAY_BUFFER,0,actor.scratch,0,data.length);
     }
     actors.update(walkers);
+  }
+
+  function updateHeld(parts){
+    for(const [kind,slot] of Object.entries(held)){
+      const data=parts?.[kind];
+      slot.mesh.count=(data?.length??0)/16;
+      if(!slot.mesh.count)continue;
+      gl.bindBuffer(gl.ARRAY_BUFFER,slot.buffer);
+      if(slot.scratch.length<data.length){
+        slot.scratch=new Float32Array(2**Math.ceil(Math.log2(data.length)));
+        gl.bufferData(gl.ARRAY_BUFFER,slot.scratch.byteLength,gl.DYNAMIC_DRAW);
+      }
+      slot.scratch.set(data);
+      gl.bufferSubData(gl.ARRAY_BUFFER,0,slot.scratch,0,data.length);
+    }
   }
 
   let boundKind=-1,kindLocation=null;
@@ -510,14 +531,16 @@ export function createRenderer(canvas){
     }
   }
 
-  function render(eye,to,lighting,time,walkers,arrival,signal=SIGNAL_GREEN){
+  function render(eye,to,lighting,time,walkers,arrival,signal=SIGNAL_GREEN,inHand=null){
     renderedFrames++;frameIndex++;
     const movedActors=walkers!==previousWalkers;
     updateActors(walkers);
+    updateHeld(inHand);
     if(!resize){clientWidth=canvas.clientWidth;clientHeight=canvas.clientHeight;}
     const dpi=devicePixelRatio||1;
     const normalScale=Math.min(dpi,quality==='high'?1.5:mobile?1:1.25);
-    const scale=quality==='low'?Math.min(dpi,.75):quality==='auto'?normalScale*autoScale:normalScale;
+    // The light mode renders 400 lines and lets the browser enlarge the picture.
+    const scale=quality==='low'?Math.min(dpi,LIGHT_LINES/Math.max(1,clientHeight)):quality==='auto'?normalScale*autoScale:normalScale;
     const w=Math.max(1,Math.round(clientWidth*scale)),h=Math.max(1,Math.round(clientHeight*scale));
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     try{post.resize(w,h);}
@@ -596,9 +619,16 @@ export function createRenderer(canvas){
     gl.uniform1f(main.u.Signal,signal);
     gl.uniform1i(main.u.SurfaceMaps,1);
     gl.uniform1f(main.u.MaterialDetail,surfacesReady?(quality==='low'?1:2):0);
+    // In the light mode only what lies within the view radius and ahead of the camera is drawn.
+    const cone=quality==='low'?[forward[0],forward[1],forward[2],viewRadius]:[0,0,0,0];
+    gl.uniform4fv(main.u.ViewCone,cone);
+    gl.uniform3fv(main.u.ViewEye,eye);
     drawBatches(front,planes,eye);
     gl.uniform1f(main.u.Dynamic,1);
     for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
+    gl.uniform4f(main.u.ViewCone,0,0,0,0);
+    for(const slot of Object.values(held))drawMesh(slot.mesh);
+    gl.uniform4fv(main.u.ViewCone,cone);
     actors.draw({vp,eye,time,send:u=>sendLighting(u,lighting,time,shadows)});
     useWorldProgram(main);
 
