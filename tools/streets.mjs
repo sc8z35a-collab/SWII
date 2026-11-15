@@ -33,7 +33,9 @@ export function facadeBuilder({shape,box,drape,foundation,heightAt,solidProp,pla
     const useShop=retail&&h>7.1&&rnd()<(id==='rio'?.81:.67);
     const bottom=useShop?4.18:Math.min(3.47,Math.max(2.65,h*.29));
     const pitched=['gable','mansard','hip','lean','saw'].includes(style.roof);
-    const crown=Math.min(pitched?3.25:1.44,h*(pitched?.165:.074));
+    // Domes, vaults, spires, tiered eaves and crowns need a taller share of the building.
+    const lofty=['dome','barrel','spire','pagoda','crown'].includes(style.roof);
+    const crown=lofty?Math.min(4.6,h*.19):Math.min(pitched?3.25:1.44,h*(pitched?.165:.074));
     const bodyH=h-bottom-crown,top=base+h-crown;
     const part=(kind,a,y,b,width,height,depth,tint,mat=0,turn=0)=>{
       const [u,v]=place(a,b);
@@ -65,11 +67,11 @@ export function facadeBuilder({shape,box,drape,foundation,heightAt,solidProp,pla
     }
 
     const roofParts=[];
-    function volume(kind,a,b,width,depth,low,high){
+    function volume(kind,a,b,width,depth,low,high,cap=high===top){
       if(rich&&kind==='box'&&(style.mass==='plain'||style.mass==='setback')&&high-low>3.0)
         recessedWindows(part,{a,b,w:width,d:depth,low,high,front,paint,trim:stone,material,look});
       else part(kind,a,(low+high)*.5,b,width,high-low,depth,paint,material);
-      if(high===top)roofParts.push({kind,a,b,width,depth});
+      if(cap)roofParts.push({kind,a,b,width,depth});
       if(balconies&&rich&&kind==='box'){
         const edge=b+front*depth*.5;
         for(let y=low+.33;y<high-1.1;y+=3.86){
@@ -108,14 +110,214 @@ export function facadeBuilder({shape,box,drape,foundation,heightAt,solidProp,pla
         block(0,split-.10,0,w+.17,.20,d+.16,stone,25);
         break;
       }
+      case 'podium': {
+        // A broad base that fills the lot and a slender tower set back from the street.
+        const split=low+Math.min(bodyH*.3,9.5);
+        volume('box',0,0,w,d,low,split);
+        volume('box',w*(v-.5)*.2,-front*d*.12,w*.6,d*.66,split,top);
+        block(0,split+.1,0,w+.14,.2,d+.14,stone,25);
+        break;
+      }
+      case 'twin': {
+        // Two slabs of different height joined by a glazed bridge.
+        const gap=w*.14,each=(w-gap)*.5,second=low+bodyH*(.72+v*.16);
+        volume('box',-(each+gap)*.5,0,each,d,low,top);
+        volume('box',(each+gap)*.5,-front*d*.04,each,d*.92,low,second);
+        block((each+gap)*.5,second+.09,-front*d*.04,each+.12,.18,d*.92+.11,stone,18);
+        if(bodyH>9){
+          const y=low+bodyH*.46,tall=Math.min(3.1,bodyH*.15);
+          block(0,y,0,gap+.3,tall,d*.42,'6f8a96',look.surface(19));
+          for(const edge of [-1,1])block(0,y+edge*tall*.5,0,gap+.34,.12,d*.42+.1,look.frame,25+detail);
+        }
+        break;
+      }
+      case 'ell':
+        // A bar along the back of the lot with one wing reaching the street.
+        volume('box',0,-front*d*.26,w,d*.48,low,top);
+        volume('box',w*(v<.5?-.29:.29),front*d*.24,w*.42,d*.52,low,low+bodyH*.7);
+        block(w*(v<.5?-.29:.29),low+bodyH*.7+.09,front*d*.24,w*.42+.12,.18,d*.52+.11,stone,18);
+        break;
+      case 'ziggurat': {
+        // Stepped tiers, each smaller than the one below.
+        const tiers=bodyH>20?4:3;
+        for(let i=0;i<tiers;i++){
+          const k=1-i*.16,from=low+bodyH*i/tiers,to=i===tiers-1?top:low+bodyH*(i+1)/tiers;
+          volume('box',0,-front*d*i*.035,w*k,d*k,from,to);
+          if(i)block(0,from+.07,-front*d*(i-1)*.035,w*(k+.16)+.1,.14,d*(k+.16)+.1,stone,18);
+        }
+        break;
+      }
+      case 'drum': {
+        // A round tower on a square base.
+        const split=low+Math.min(bodyH*.24,5.5),size=Math.min(w,d)*.94;
+        volume('box',0,0,w,d,low,split);
+        block(0,split+.09,0,w+.12,.18,d+.11,stone,18);
+        volume('tube',0,0,size,size,split,top);
+        break;
+      }
+      case 'cantilever': {
+        // The upper storeys project beyond a narrower shaft.
+        const split=low+bodyH*.42;
+        volume('box',0,-front*d*.05,w*.72,d*.8,low,split);
+        volume('box',0,0,w,d,split,top);
+        block(0,split+.09,0,w+.1,.18,d+.1,look.frame,25);
+        break;
+      }
+      case 'turret': {
+        // A corner tower rises above the main block.
+        const main=top-Math.min(bodyH*.16,3.4),side=v<.5?-1:1,tw=Math.max(2.6,w*.3),td=Math.max(2.6,d*.3);
+        volume('box',0,0,w,d,low,main,false);
+        block(0,main+.09,0,w+.12,.18,d+.11,stone,18);
+        volume('chamfer',side*(w*.5-tw*.5+.22),front*(d*.5-td*.5+.22),tw,td,low,top);
+        break;
+      }
+      case 'fins': {
+        // A slab between projecting piers.
+        volume('box',0,0,w*.9,d,low,top);
+        const count=Math.max(3,Math.round(w/2.7));
+        for(let i=0;i<=count;i++)for(const face of rich?[1,-1]:[1])
+          block(-w*.45+w*.9*i/count,(low+top)*.5,front*face*d*.5,.18,top-low,.62,stone,18+(i%2?detail:0));
+        break;
+      }
+      case 'gate': {
+        // Two legs carry a block that bridges the opening between them.
+        const leg=w*.3,span=low+bodyH*.6;
+        for(const side of [-1,1])volume('box',side*(w-leg)*.5,0,leg,d,low,top,false);
+        volume('box',0,0,w-leg*2,d*.94,span,top,false);
+        block(0,span-.08,0,w-leg*2+.1,.16,d*.94+.08,look.frame,25);
+        roofParts.push({kind:'box',a:0,b:0,width:w,depth:d});
+        break;
+      }
+      case 'cluster':
+        // Three volumes of different heights stand shoulder to shoulder.
+        volume('box',-w*.02,-front*d*.1,w*.42,d*.8,low,top);
+        volume('box',-w*.33,front*d*.08,w*.34,d*.84,low,low+bodyH*.76);
+        volume('box',w*.34,front*d*.02,w*.32,d*.9,low,low+bodyH*.56);
+        block(-w*.33,low+bodyH*.76+.09,front*d*.08,w*.34+.12,.18,d*.84+.11,stone,18);
+        block(w*.34,low+bodyH*.56+.09,front*d*.02,w*.32+.12,.18,d*.9+.11,stone,18);
+        break;
       default:
         volume('box',0,0,w,d,low,top);
     }
     const roofPaint=id==='paris'||style.roof==='saw'?pick(['535c65','626c73','777a77']):
       pick(['8c584b','a2725b','936452','6e7575']);
+    const across=[c,0,-s],along=[s,0,c];
     for(const {kind,a,b,width,depth} of roofParts){
       const roofH=crown;
-      if(pitched){
+      const slab=()=>part(kind,a,top+.09,b,width+.12,.18,depth+.11,stone,18);
+      const small=Math.min(width,depth);
+      if(style.roof==='dome'){
+        // A drum, a hemisphere and a lantern.
+        slab();
+        const size=small*.74;
+        part('tube',a,top+.18+roofH*.13,b,size,roofH*.26,size,stone,18);
+        part('ball',a,top+.18+roofH*.26,b,size*.97,roofH*1.48,size*.97,roofPaint,25);
+        part('tube',a,top+.18+roofH*1.06,b,size*.13,roofH*.2,size*.13,look.frame,25+detail);
+        part('cone',a,top+.18+roofH*1.26,b,size*.11,roofH*.22,size*.11,look.frame,25+detail);
+      }else if(style.roof==='barrel'){
+        // A vault whose axis follows the long side of the block.
+        slab();
+        const [u,q]=place(a,b),wide=width>=depth;
+        shape('tube',u,top+.12,q,(wide?depth:width)*.94,(wide?width:depth)+.06,roofH*2,roofPaint,25,angle,
+          wide?[along,across,[0,1,0]]:[across,along.map(n=>-n),[0,1,0]]);
+        if(rich)for(const t of [-.3,0,.3]){
+          const [ru,rq]=wide?place(a+width*t,b):place(a,b+depth*t);
+          shape('tube',ru,top+.12,rq,(wide?depth:width)*.96,.14,roofH*2.04,look.frame,25+detail,angle,
+            wide?[along,across,[0,1,0]]:[across,along.map(n=>-n),[0,1,0]]);
+        }
+      }else if(style.roof==='spire'){
+        // A steep pyramid on a broach.
+        const size=small*.56;
+        part('taper',a,top+roofH*.17,b,width+.1,roofH*.34,depth+.1,roofPaint,14);
+        part('box',a,top+roofH*.42,b,size*.7,roofH*.3,size*.7,stone,18);
+        part('pyramid',a,top+roofH*.57+roofH*.72,b,size*1.42,roofH*1.44,size*1.42,roofPaint,25,Math.PI/4);
+        part('ball',a,top+roofH*2.03,b,.2,.2,.2,look.frame,25+detail);
+      }else if(style.roof==='pagoda'){
+        // Tiers of sweeping eaves, each smaller than the one below.
+        const tiers=small>7?3:2,each=roofH/tiers;
+        for(let i=0;i<tiers;i++){
+          const k=1-i*.25,y=top+each*i;
+          part('taper',a,y+each*.3,b,(width+1.3)*k,each*.6,(depth+1.3)*k,roofPaint,14);
+          part('box',a,y+each*.05,b,(width+1.36)*k,.07,(depth+1.36)*k,look.frame,25+detail);
+          if(i<tiers-1)part('box',a,y+each*.8,b,width*k*.62,each*.42,depth*k*.62,paint,material);
+        }
+        part('cone',a,top+roofH+.3,b,.26,1.0,.26,look.frame,25+detail);
+      }else if(style.roof==='crown'){
+        // A stepped crown with a pinnacle at every corner.
+        part('taper',a,top+roofH*.3,b,width+.1,roofH*.6,depth+.1,stone,18);
+        part('taper',a,top+roofH*.8,b,width*.5,roofH*.4,depth*.5,roofPaint,25);
+        for(const sx of [-1,1])for(const sz of [-1,1])
+          part('pyramid',a+sx*width*.42,top+roofH*.5,b+sz*depth*.42,small*.2,roofH,small*.2,look.frame,25+detail,Math.PI/4);
+        part('cone',a,top+roofH*1.3,b,.24,roofH*.6,.24,look.frame,25);
+      }else if(style.roof==='tank'){
+        // A timber water tank on a steel frame.
+        slab();
+        const r=Math.min(1.45,small*.19),tx=a+width*(v-.5)*.36,tz=b-front*depth*.16,legs=1.15,y=top+.18;
+        for(const sx of [-1,1])for(const sz of [-1,1])block(tx+sx*r*.62,y+legs*.5,tz+sz*r*.62,.1,legs,.1,look.frame,25+detail);
+        block(tx,y+legs,tz,r*1.5,.1,r*1.5,look.frame,25+detail);
+        part('tube',tx,y+legs+.05+r*.78,tz,r*2,r*1.56,r*2,'7a5b43',24);
+        part('cone',tx,y+legs+.05+r*1.56+r*.28,tz,r*2.12,r*.56,r*2.12,'5b5148',25);
+        for(const t of [.22,.5,.78])part('tube',tx,y+legs+.05+r*1.56*t,tz,r*2.04,.05,r*2.04,'3c3f41',25+detail);
+        if(rich&&kind!=='tube'&&width>3.8&&depth>3.5)roofParapet(part,{kind,a,b,width,depth,y,height:.7,stone,metal:look.frame});
+      }else if(style.roof==='garden'){
+        // A planted terrace with a pergola.
+        slab();
+        const y=top+.18;
+        part(kind,a,y+.05,b,width-.9,.1,depth-.9,'6d8a54',9);
+        const trees=Math.max(1,Math.min(4,Math.round(width*depth/34)));
+        for(let i=0;i<trees;i++){
+          const tx=a+width*(.28*Math.cos(i*2.4+v*6)),tz=b+depth*(.28*Math.sin(i*2.4+v*6)),size=.8+((i*37+Math.round(v*100))%5)*.12;
+          part('tube',tx,y+.1+size*.5,tz,.12,size,.12,'6c5944',detail);
+          part('ball',tx,y+.1+size+size*.55,tz,size*1.7,size*1.5,size*1.7,i%2?'5c7d54':'69845b',6+detail);
+        }
+        if(rich&&small>5){
+          const px=a-width*.22,pz=b-front*depth*.2;
+          for(const sx of [-1,1])for(const sz of [-1,1])block(px+sx*1.1,y+1.15,pz+sz*.9,.1,2.2,.1,'7c6a54',24+detail);
+          for(const t of [-1,-.5,0,.5,1])block(px+t*1.1,y+2.3,pz,.08,.1,2.2,'7c6a54',24+detail);
+        }
+        if(kind!=='tube'&&width>3.8&&depth>3.5)roofParapet(part,{kind,a,b,width,depth,y,height:1.0,stone,metal:look.frame});
+      }else if(style.roof==='solar'){
+        // Rows of photovoltaic panels tilted toward the street.
+        slab();
+        const y=top+.18,rows=Math.max(1,Math.min(6,Math.floor((depth-1.1)/1.55))),tilt=.33;
+        const up=[along[0]*Math.sin(tilt)*front,Math.cos(tilt),along[2]*Math.sin(tilt)*front];
+        const slope=[along[0]*Math.cos(tilt),-Math.sin(tilt)*front,along[2]*Math.cos(tilt)];
+        for(let i=0;i<rows;i++){
+          const z=b+(i-(rows-1)*.5)*1.55,[u,q]=place(a,z);
+          shape('box',u,y+.42,q,width*.82,.05,1.05,'1f2f45',15+(i%2?detail:0),angle,[across,up,slope]);
+          block(a,y+.16,z,width*.8,.32,.07,look.frame,25+detail);
+        }
+      }else if(style.roof==='helipad'){
+        // A landing deck with its marking and edge lights.
+        slab();
+        const r=small*.36,y=top+.18;
+        part('tube',a,y+.24,b,r*.9,.48,r*.9,'6d7273',18);
+        part('tube',a,y+.56,b,r*2,.16,r*2,'565b5c',18);
+        part('tube',a,y+.645,b,r*1.5,.012,r*1.5,'d8cf9e',detail);
+        part('tube',a,y+.648,b,r*1.36,.012,r*1.36,'565b5c',detail);
+        for(const sx of [-1,1])block(a+sx*r*.24,y+.655,b,.13,.012,r*.74,'ece5cc',detail);
+        block(a,y+.655,b,r*.48,.012,.13,'ece5cc',detail);
+        for(let i=0;i<8;i++)block(a+Math.cos(i*Math.PI/4)*r*.96,y+.67,b+Math.sin(i*Math.PI/4)*r*.96,.1,.07,.1,i%2?'f3d27a':'8dd6a0',7+detail);
+      }else if(style.roof==='mast'){
+        // A plant room, a lattice mast and an aviation light.
+        slab();
+        const y=top+.18,px=a+width*(v-.5)*.2,mast=Math.min(9,2.6+h*.09);
+        part('box',px,y+roofH*.5,b,width*.34,roofH,depth*.36,roofPaint,25);
+        part('tube',px,y+roofH+mast*.5,b,.16,mast,.16,look.frame,25);
+        for(const t of [.3,.55,.8])block(px,y+roofH+mast*t,b,.62,.045,.045,look.frame,25+detail);
+        part('ball',px,y+roofH+mast+.08,b,.2,.2,.2,'d0503c',7);
+        block(px+.5,y+roofH+.35,b+.3,.5,.5,.08,'c9cdca',25+detail,.5);
+      }else if(style.roof==='billboard'){
+        // A sign board on a steel frame faces the street.
+        slab();
+        const y=top+.18,wide=Math.min(width*.78,7.5),tall=Math.min(3.1,1.4+h*.05),edge=b+front*(depth*.5-.5);
+        const ink=pick(['c9463c','2f6f8f','e3b23c','3f8f6a','d9d6c9','7a3f8a']);
+        for(const t of [-.4,0,.4])block(a+wide*t,y+.5+tall*.5,edge-front*.14,.09,1+tall,.09,look.frame,25+detail);
+        block(a,y+1+tall*.5,edge,wide,tall,.1,ink,detail);
+        block(a,y+1+tall*.5,edge+front*.056,wide*.9,tall*.2,.012,'f2ead2',7+detail);
+        block(a,y+1+tall+.05,edge,wide+.1,.08,.16,look.frame,25+detail);
+        for(const t of [-.33,0,.33])block(a+wide*t,y+1+tall+.24,edge+front*.3,.1,.07,.5,look.frame,25+detail);
+      }else if(pitched){
         if(style.roof==='saw'){
           for(const side of [-1,1])
             part('roof',a+side*width*.25,top+roofH*.5,b,width*.50,roofH,depth,roofPaint,25);
@@ -141,7 +343,7 @@ export function facadeBuilder({shape,box,drape,foundation,heightAt,solidProp,pla
       }
       if(rich&&pitched){
         roofFlashing(part,{a,b,width,depth,y:top,height:roofH,type:style.roof,metal:look.frame});
-      }else if(rich&&width>3.8&&depth>3.5){
+      }else if(rich&&!lofty&&kind!=='tube'&&!['tank','garden'].includes(style.roof)&&width>3.8&&depth>3.5){
         const y=top+(style.roof==='terrace'?.24:style.roof==='parapet'?.18:0);
         roofParapet(part,{kind,a,b,width,depth,y,height:Math.max(.22,roofH-(y-top)),
           stone,metal:look.frame});

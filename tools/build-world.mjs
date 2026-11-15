@@ -7,8 +7,8 @@ import {limits,districts,districtAt,toGlobal,toLocal,GRID_STEP,TILE_SIZE,TILE_CO
 import {cells,meshKinds as kinds,encodeTile} from '../dist/tiles.js';
 import {blockLanes,makeRoutes,makeRoadIndex,roadStyle} from './layout.mjs';
 import {facadeBuilder} from './streets.mjs';
-import {fitHeight,streetStyle,towerPlans} from './architecture.mjs';
-import {buildTower} from './towers.mjs';
+import {addedStreetStyles,denseTowerPlans,fitHeight,streetStyle,streetStyleCount,towerPlans} from './architecture.mjs';
+import {buildTower,towerForms} from './towers.mjs';
 import {createDraper} from './drape.mjs';
 import {connectStreets} from './road-links.mjs';
 import {packSlope} from '../dist/surfaces.js';
@@ -19,13 +19,13 @@ import {recordFixtures,writeFixtureFootprints} from './fixture-footprints.mjs';
 import {buildingSite} from './building-sites.mjs';
 import {apartmentPlans,facilityPlans,neighborhoodSize} from './neighborhood-plans.mjs';
 import {buildApartment,buildFacility} from './neighborhood-buildings.mjs';
-import {buildingLook} from './building-looks.mjs';
+import {buildingLook,lookCounts} from './building-looks.mjs';
 import {buildParkingLot,buildRoadTunnels,buildTransitSites,buildWorksite,infrastructureRoads,protectedSite} from './infrastructure.mjs';
 import {buildPark,parkPlans,parksByCity} from './parks.mjs';
 import {railwayMeters,stations} from '../dist/metro.js';
 import {roadTunnels} from '../dist/road-tunnels.js';
 import {assemblyBounds,atPad,launchSite} from '../dist/mission-layout.js';
-import {placeMissionBooks,writeMissionSight} from './mission-bake.mjs';
+import {placeHaunts,placeMissionBooks,writeMissionSight} from './mission-bake.mjs';
 const colors=new Map();
 const model=()=>Object.fromEntries(['solids','decks','platforms','roads',...kinds].map(name=>[name,[]]));
 const color=c=>{
@@ -63,10 +63,15 @@ function makeRegion(){
   const padFloor=heightAt(launchSite.x,launchSite.z)+.087;
   const appearances=new Set();
   const renovations=new Set();
+  const recipes=new Set(),damageUse=new Array(lookCounts.damageKinds).fill(0);
   function appearance(...args){
     const look=buildingLook(...args);
-    appearances.add(look.key);
+    appearances.add(look.key+'/'+look.tone);
     renovations.add(look.renovation.id);
+    if(look.wear>0){
+      recipes.add(look.recipe.join('')+look.wear);
+      for(const [kind,level] of look.recipe.entries())if(level>1)damageUse[kind]++;
+    }
     return look;
   }
   let seed=46212719,buildings=0,accessMeters=0,linkedBuildings=0;
@@ -482,6 +487,15 @@ function makeRegion(){
     reserveFrontage(plot,name);
     towers.push(buildTower({...plot,name},geometry));
   }
+  let denseTowers=0;
+  for(const [id,plans] of Object.entries(denseTowerPlans))for(const [lx,lz,height,width,depth,name] of plans){
+    const plot=fitFrontage(id,lx,lz,{width:width*1.24,depth:depth*1.22,height:Math.round(height*1.19)},
+      {tower:true,access:5.59,scales:[1,.95,.90,.84,.78,.72]});
+    if(!plot){console.warn('No lot for the additional '+name+' tower in '+id);continue;}
+    reserveFrontage(plot,name);
+    towers.push(buildTower({...plot,name},geometry));
+    denseTowers++;
+  }
   const civicSites=[];
   for(const [i,city] of cities.entries()){
     const side=city.id==='rio'?-1:1;
@@ -786,7 +800,10 @@ function makeRegion(){
     return false;
   }
   const pedestrians=makePedestrians(routes,{heightAt,blocked:blocksPedestrian,inWater,roadMask});
-  const books=placeMissionBooks(routes,heightAt,(x,z)=>blocksPedestrian(x,z)||parkedCars.some(c=>Math.hypot(c.x-x,c.z-z)<2.75));
+  const occupiedRoad=(x,z)=>blocksPedestrian(x,z)||parkedCars.some(c=>Math.hypot(c.x-x,c.z-z)<2.75);
+  const books=placeMissionBooks(routes,heightAt,occupiedRoad);
+  const haunts=placeHaunts(routes,heightAt,(x,z)=>inWater(x,z)||occupiedRoad(x,z)||
+    parkedCars.some(c=>Math.hypot(c.x-x,c.z-z)<4.5)||books.some(b=>Math.hypot(b.x-x,b.z-z)<3));
   function terrainPaint(x,z,height){
     const natural=surfaceAt(x,z,height);
     if(natural.water||waterLevel(x,z)!==undefined&&height<1.75)return natural;
@@ -805,7 +822,8 @@ function makeRegion(){
   }
   return {tile,routes,buildings,terrainPaint,meters:Math.round(count),towers,streetBuildings,skyline,styles,appearances,renovations,heightBands,
     civicSites,linkedBuildings,accessMeters:Math.round(accessMeters),lanes:lanes.length,
-    repairs:repairs.length,infill,squares,pedestrians,capitalBuildings,footprints,towerAssembly,parkedCars,books,padFloor};
+    repairs:repairs.length,infill,squares,pedestrians,capitalBuildings,footprints,towerAssembly,parkedCars,books,padFloor,
+    haunts,denseTowers,recipes,damageUse};
 }
 
 function packColor(color){
@@ -843,7 +861,7 @@ for(let j=0;j<TILE_ROWS;j++)for(let i=0;i<TILE_COLS;i++){
 await writeMissionSight(world,out);
 await writeFile(out+'tower-assembly.json',serializeArchitecture(world.towerAssembly));
 await writeFile(new URL('../dist/mission-data.js',import.meta.url),
-  'export const missionData='+serializeArchitecture({padFloor:world.padFloor,books:world.books,cars:world.parkedCars})+';\n');
+  'export const missionData='+serializeArchitecture({padFloor:world.padFloor,books:world.books,cars:world.parkedCars,haunts:world.haunts})+';\n');
 await writeFixtureFootprints(world.footprints);
 await writeFile(out+'architecture.json',serializeArchitecture({towers:world.towers,skyline:world.skyline,pedestrians:world.pedestrians}));
 const parks=world.civicSites.filter(site=>site.type==='park');
@@ -855,6 +873,14 @@ await writeFile(new URL('../dist/park-locations.js',import.meta.url),
 const stats={version:WORLD_VERSION,width:limits.east-limits.west,depth:limits.south-limits.north,tiles:TILE_COLS*TILE_ROWS,
   buildings:world.buildings,roads:world.routes.length,roadMeters:world.meters,instances,tileBytes:total,rawTileBytes:rawTotal,physicsTileBytes:physicsTotal,
   buildingStyles:world.styles.size,appearanceVariants:world.appearances.size,renovationStyles:[...world.renovations].sort(),
+  streetStyles:streetStyleCount,addedStreetStyles,towerForms:towerForms.length,addedTowers:world.denseTowers,
+  books:world.books.length,haunts:world.haunts.length/3,
+  // Appearance: era × pigment × wear × window pattern × renovation × damage class, before the
+  // building type and height are counted. Every wall also places its damage differently.
+  damageKinds:lookCounts.damageKinds,damageRecipes:world.recipes.size,damageUse:world.damageUse,
+  appearanceCombinations:lookCounts.eras*lookCounts.pigments*lookCounts.wear*lookCounts.windows*10*lookCounts.damageClasses,
+  buildingCombinations:lookCounts.eras*lookCounts.pigments*lookCounts.wear*lookCounts.windows*10*lookCounts.damageClasses*
+    (world.styles.size)*world.heightBands.size,
   parkTypes:[...new Set(parks.map(park=>park.style))].sort(),
   heightBands:[...world.heightBands].sort((a,b)=>a-b),lobbies:world.towers.length,
   roadConnections:world.repairs,infill:world.infill,squares:world.squares,pedestrians:world.pedestrians.length,capitalBuildings:world.capitalBuildings,
