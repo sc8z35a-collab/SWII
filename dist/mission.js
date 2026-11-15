@@ -3,6 +3,7 @@ import {ASCENT_MS,BOOK_TARGET,CANNON_DROP,CANNON_MUZZLE,CANNON_PITCH,EVACUATION_
 import {nearVehicle,switchVehicle} from './driving.js';
 import {createPursuit} from './pursuit.js';
 import {spawn} from './physics.js';
+import {RD2,aimDirection,stepBullet} from './ballistics.js';
 
 const clamp=(n,lo,hi)=>Math.max(lo,Math.min(hi,n));
 const phases=new Set(['books','evacuate','ascent','survival','lost','escaped']);
@@ -15,6 +16,9 @@ const distance=(a,b)=>Math.hypot(...b.map((n,i)=>n-a[i]));
 const targetOf=p=>[p.x,p.y+(p.vehicle?.83:.97),p.z];
 const smooth=t=>{const a=clamp(t,0,1);return a*a*(3-2*a);};
 const pad=missionData.padFloor;
+const MAX_DROPS=3,FIRST_DROP=9000,DROP_LIFE=150000,DROP_FALL=900;
+const lerp=(a,b,t)=>a.map((v,i)=>v+(b[i]-v)*t);
+const brief=n=>Math.round(n*1000)/1000;
 const footings=[[-45,-45,4.1,4.1],[45,-45,4.1,4.1],[-45,45,4.1,4.1],[45,45,4.1,4.1],
   [-4.67,46,1.22,1.1],[4.67,46,1.22,1.1]];
 
@@ -58,10 +62,18 @@ export function createMission(sight,saved=null){
     if(!cars?.size)parking.delete(id);
   }
   for(const car of missionData.cars)park(changes.get(car.id)??car);
-  let pursuit=createPursuit(sight,initial?.pursuit);
+  const origin=missionSpawn();
+  let pursuit=createPursuit(sight,initial?.pursuit,{origin});
+  const whole=(value,lo,hi,fallback)=>Number.isInteger(value)&&value>=lo&&value<=hi?value:fallback;
   const state={phase:initial?.phase??'books',time:initial?.time??0,hp:initial?.hp??4,aim:initial?.aim??Math.PI,
-    missiles:initial?.missiles??[],launches:initial?.launches??0,seq:initial?.seq??0};
+    missiles:initial?.missiles??[],launches:initial?.launches??0,seq:initial?.seq??0,
+    // RD II: 120 rounds in the magazine and 250 carried in total at the start.
+    gun:{mag:whole(initial?.gun?.mag,0,RD2.magazine,RD2.magazine),
+      reserve:whole(initial?.gun?.reserve,0,99999,RD2.startingRounds-RD2.magazine)},
+    drops:(Array.isArray(initial?.drops)?initial.drops:[]).filter(d=>d&&[d.id,d.x,d.y,d.z,d.age].every(Number.isFinite)).slice(0,MAX_DROPS),
+    dropIn:Number.isFinite(initial?.dropIn)?initial.dropIn:FIRST_DROP,dropSeq:whole(initial?.dropSeq,0,1e9,0)};
   let time=0,event=null,blasts=[],driver=null,released=[];
+  let bullets=[],impacts=[],cooldown=0,reloading=0,shots=0,rounds=0,hitSeq=0,lastHit=null;
   function emit(kind,details={}){
     event={kind,id:++state.seq,...details};
   }
@@ -124,6 +136,90 @@ export function createMission(sight,saved=null){
     if(picked.size>=BOOK_TARGET&&crossesGate(before,player)){
       released=pursuit.view().filter(actor=>Number.isFinite(actor.y));
       state.phase='evacuate';state.time=0;emit('purified');
+    }
+  }
+  const armed=player=>!missionTerminal(state.phase)&&!player.station&&!player.vehicle&&!player.train?.boardedAt;
+  function finishReload(){
+    const moved=Math.min(RD2.magazine-state.gun.mag,state.gun.reserve);
+    state.gun.mag+=moved;state.gun.reserve-=moved;reloading=0;
+  }
+  function reload(){
+    if(missionTerminal(state.phase)||reloading>0||state.gun.mag>=RD2.magazine||state.gun.reserve<=0)return false;
+    reloading=RD2.reloadMs;
+    return true;
+  }
+  // One pull of the trigger: all three barrels fire at once, as far as the magazine allows.
+  function shoot(player,yaw,pitch){
+    if(!armed(player)||cooldown>0||reloading>0||![yaw,pitch].every(Number.isFinite))return 0;
+    if(state.gun.mag<=0){reload();return 0;}
+    const count=Math.min(RD2.barrels,state.gun.mag);
+    const right=[Math.cos(yaw),0,Math.sin(yaw)],forward=aimDirection(yaw,pitch);
+    const eye=[player.x,player.y+PLAYER_HEIGHT-.07,player.z];
+    for(let barrel=0;barrel<count;barrel++){
+      const side=barrel-(count-1)*.5;
+      const wobble=()=>(Math.random()-.5)*.0026;
+      const [dx,dy,dz]=aimDirection(yaw+side*RD2.spread+wobble(),pitch+wobble());
+      bullets.push({id:++rounds,x:eye[0]+forward[0]*.26+right[0]*side*.021,y:eye[1]+forward[1]*.26,
+        z:eye[2]+forward[2]*.26+right[2]*side*.021,vx:dx*RD2.muzzleVelocity,vy:dy*RD2.muzzleVelocity,
+        vz:dz*RD2.muzzleVelocity,age:0,travel:0});
+    }
+    state.gun.mag-=count;shots++;cooldown=RD2.cycleMs;
+    if(state.gun.mag<=0)reload();
+    return count;
+  }
+  function mark(at,flesh){
+    impacts.push({id:impacts.length?impacts.at(-1).id+1:1,x:at[0],y:at[1],z:at[2],at:time,flesh});
+    if(impacts.length>36)impacts.shift();
+  }
+  function fly(bullet,player,terrain,ms){
+    return stepBullet(bullet,ms/1000,(a,b)=>{
+      const target=state.phase==='books'?pursuit.struck(a,b):null;
+      const end=target?lerp(a,b,target.t):b;
+      const solid=p=>sight.blocked(a,p)===true||terrain.terrainOccludes(a,p);
+      if(solid(end)){
+        let near=0,far=1;
+        for(let i=0;i<5;i++){
+          const middle=(near+far)*.5;
+          if(solid(lerp(a,end,middle)))far=middle;else near=middle;
+        }
+        mark(lerp(a,end,near),false);
+        return false;
+      }
+      if(!target)return true;
+      const result=pursuit.wound(target.actor,player);
+      hitSeq++;lastHit={id:result.id,name:result.name,hits:result.hits,down:result.down};
+      mark(end,true);
+      if(result.stunned)emit('stunned',{enemy:result.name});
+      return false;
+    });
+  }
+  // Ammunition falls from the sky close to the player; walking over a box adds 15 rounds.
+  function supply(before,player,terrain,ms){
+    for(const drop of state.drops)drop.age+=ms;
+    state.drops=state.drops.filter(drop=>drop.age<DROP_LIFE);
+    if(state.phase!=='books'||player.station)return;
+    if(!player.vehicle){
+      const kept=[];
+      for(const drop of state.drops){
+        const base=nearestPoint([before.x,before.y,before.z],[player.x,player.y,player.z],[drop.x,drop.y,drop.z]);
+        if(drop.age<DROP_FALL||Math.abs(base[1]-drop.y)>1.7||Math.hypot(base[0]-drop.x,base[2]-drop.z)>1.35){kept.push(drop);continue;}
+        state.gun.reserve+=RD2.pickupRounds;
+        emit('ammo',{rounds:RD2.pickupRounds,total:state.gun.mag+state.gun.reserve});
+      }
+      state.drops=kept;
+    }
+    state.dropIn-=ms;
+    if(state.dropIn>0||state.drops.length>=MAX_DROPS)return;
+    state.dropIn=1500;
+    for(let attempt=0;attempt<7;attempt++){
+      const angle=Math.random()*Math.PI*2,range=4.5+Math.random()*7.5;
+      const x=player.x+Math.sin(angle)*range,z=player.z+Math.cos(angle)*range,y=terrain.support(x,z,player.y);
+      if(y===null||Math.abs(y-player.y)>2.4)continue;
+      const from=[player.x,player.y+1.2,player.z],to=[x,y+.3,z];
+      if(sight.blocked(from,to)!==false||terrain.terrainOccludes(from,to))continue;
+      state.drops.push({id:++state.dropSeq,x,y,z,age:0});
+      state.dropIn=(state.gun.mag+state.gun.reserve<60?8000:15000)+Math.random()*6000;
+      break;
     }
   }
   function fire(){
@@ -197,6 +293,11 @@ export function createMission(sight,saved=null){
       if(!wreck||Math.hypot(player.x-wreck.x,player.z-wreck.z)>2.8)delete player.clearWreck;
     }
     time+=ms;state.time+=ms;
+    cooldown=Math.max(0,cooldown-ms);
+    if(reloading>0&&(reloading-=ms)<=0)finishReload();
+    if(bullets.length)bullets=bullets.filter(bullet=>fly(bullet,player,terrain,ms));
+    impacts=impacts.filter(impact=>time-impact.at<700);
+    supply(before,player,terrain,ms);
     if(previous==='ascent'||previous==='survival'){
       const face=Math.atan2(player.x-launchSite.x,launchSite.z-player.z)-state.aim;
       state.aim+=Math.atan2(Math.sin(face),Math.cos(face))*Math.min(1,ms*.004);
@@ -211,7 +312,7 @@ export function createMission(sight,saved=null){
           const fresh=missionSpawn(),y=terrain.support(fresh.x,fresh.z);
           if(y!==null){
             Object.assign(player,fresh,{y,vehicle:false,vehicleId:null,station:null,train:null});
-            connect(player);pursuit=createPursuit(sight);emit('caught',{enemy:captured});
+            connect(player);pursuit=createPursuit(sight,null,{origin});emit('caught',{enemy:captured});
           }
         }
       }
@@ -239,15 +340,21 @@ export function createMission(sight,saved=null){
     }
   }
   function save(){
-    return {...state,picked:[...picked],cars:[...changes.values()],pursuit:state.phase==='books'?pursuit.save():[]};
+    return {...state,gun:{...state.gun},drops:state.drops.map(drop=>({...drop})),
+      picked:[...picked],cars:[...changes.values()],pursuit:state.phase==='books'?pursuit.save():null};
   }
   function view(){
     return {phase:state.phase,elapsed:state.time,hp:state.hp,lift:launchHeight(state.phase,state.time),picked:[...picked],aim:state.aim,
       cars:[...changes.values()],driver,missiles:state.missiles.map(m=>({...m,track:[...m.track]})),
       blasts:blasts.map(({at,...b})=>({...b,age:time-at})),enemies:state.phase==='books'?pursuit.view():[],
-      releases:state.phase==='evacuate'&&state.time<4100?released:[],launches:state.launches,event};
+      releases:state.phase==='evacuate'&&state.time<4100?released:[],launches:state.launches,event,
+      gun:{mag:state.gun.mag,reserve:state.gun.reserve,reloading:Math.max(0,reloading),shots,hitSeq,lastHit},
+      bullets:bullets.map(({id,x,y,z,vx,vy,vz,age})=>({id,x:brief(x),y:brief(y),z:brief(z),vx:brief(vx),vy:brief(vy),vz:brief(vz),age:Math.round(age)})),
+      impacts:impacts.map(({at,x,y,z,...impact})=>({...impact,x:brief(x),y:brief(y),z:brief(z),age:Math.round(time-at)})),
+      drops:state.drops.map(({id,x,y,z,age})=>({id,x:brief(x),y:brief(y),z:brief(z),age:Math.round(age)}))};
   }
   return {connect,plazaFloor:(x,z,y)=>missionPlazaFloor({lift:launchHeight(state.phase,state.time)},x,z,y),
     nearbyCar,carObstacle,changeVehicle,update,save,view,occupied:()=>state.phase==='books',
-    phase:()=>state.phase,version:()=>state.seq,missiles:()=>state.missiles};
+    phase:()=>state.phase,version:()=>state.seq,missiles:()=>state.missiles,
+    shoot,reload,hunters:()=>state.phase==='books'?pursuit.hunters():[]};
 }

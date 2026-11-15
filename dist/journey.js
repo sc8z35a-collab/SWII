@@ -182,6 +182,7 @@ export function createJourney(notify){
     return probe();
   }
   return {start:probe,suspend,resume,wake,drive,action,tick:()=>send({op:'tick'}),
+    fire:(yaw,pitch)=>send({op:'fire',yaw,pitch}),reload:()=>send({op:'reload'}),
     get mode(){return mode;},get connected(){return connected;},
     get connectionId(){return connected?generation:null;}};
 }

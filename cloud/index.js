@@ -7,6 +7,7 @@ import {restorePlayer} from './profile.js';
 import {playerFloor,resolveTransport,transportActions,transportDestination} from '../dist/transport.js';
 import {createMission,missionSpawn,missionTerminal} from '../dist/mission.js';
 import {createVisibility} from '../dist/visibility.js';
+import {ACTIVE_RANGE} from '../dist/pursuit.js';
 
 const CREDIT_LIMIT=270;
 const SAVE_PERIOD=6000;
@@ -61,8 +62,8 @@ export class Journey extends DurableObject {
     this.tiles=tileCache(async (ix,iz)=>{
       const response=await loadAsset(env,tilePath(ix,iz,false));
       return decodeTile(await response.arrayBuffer(),ix,iz,false);
-    },{capacity:35});
-    this.sight=createVisibility(path=>loadAsset(env,path));
+    },{capacity:56});
+    this.sight=createVisibility(path=>loadAsset(env,path),56);
     this.terrain=terrainSampler(this.tiles,{
       plazaFloor:(...args)=>this.mission.plazaFloor(...args),
       carObstacle:(...args)=>this.mission.carObstacle(...args)
@@ -81,8 +82,11 @@ export class Journey extends DurableObject {
     return job;
   }
   async prepare(player){
-    const tasks=[this.tiles.around(player.x,player.z,this.mission.occupied()?102:player.vehicle?18:8),
-      this.sight.around(player.x,player.z,this.mission.occupied()?124:70)];
+    // While creatures roam, the ground and the sight lines are needed as far as they are simulated.
+    const tasks=[this.tiles.around(player.x,player.z,this.mission.occupied()?ACTIVE_RANGE+6:player.vehicle?18:8),
+      this.sight.around(player.x,player.z,this.mission.occupied()?ACTIVE_RANGE+6:70)];
+    for(const hunter of this.mission.hunters())
+      tasks.push(this.tiles.around(hunter.x,hunter.z,40),this.sight.around(hunter.x,hunter.z,40));
     if(this.mission.occupied()){
       const spawn=missionSpawn();
       tasks.push(this.tiles.around(spawn.x,spawn.z,5));
@@ -162,6 +166,7 @@ export class Journey extends DurableObject {
         if(packet?.op==='drive')await this.drive(ws,packet,attach,now);
         else if(packet?.op==='tick')await this.tick(ws,attach,now);
         else if(packet?.op==='action')await this.action(ws,packet,attach,now);
+        else if(packet?.op==='fire'||packet?.op==='reload')await this.weapon(ws,packet,attach,now);
         else this.send(ws,{op:'error',error:'packet'});
       }catch(error){
         console.error('Journey command failed',error instanceof Error?error.message:'unknown');
@@ -197,6 +202,21 @@ export class Journey extends DurableObject {
     const player=this.data.player;
     await this.prepare(player);
     this.step({...player},attach,now);
+    this.send(ws,{op:'state',seq:attach.seq,...this.snapshot()});
+  }
+  // The trigger and the reload are resolved here, from the confirmed position of the player.
+  async weapon(ws,packet,attach,now){
+    const player=this.data.player;
+    if(missionTerminal(this.mission.phase()))return;
+    if(packet.op==='fire'&&(!Number.isFinite(packet.yaw)||!Number.isFinite(packet.pitch)||
+      Math.abs(packet.yaw)>Math.PI+.001||Math.abs(packet.pitch)>1.5)){
+      this.send(ws,{op:'error',error:'packet'});return;
+    }
+    await this.prepare(player);
+    this.step({...player},attach,now);
+    if(packet.op==='fire')this.mission.shoot(player,packet.yaw,packet.pitch);
+    else this.mission.reload();
+    this.dirty=true;
     this.send(ws,{op:'state',seq:attach.seq,...this.snapshot()});
   }
   async drive(ws,packet,attach,now){
