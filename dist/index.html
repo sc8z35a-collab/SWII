@@ -8,6 +8,32 @@
 <title>ATLANTIS — アトランティス</title>
 <link rel="stylesheet" href="./style.css">
 <script type="module" src="./game.js"></script>
+<!-- Deeper modules and early data start downloading with the page instead of one import level at a time. -->
+<link rel="modulepreload" href="./engine.js">
+<link rel="modulepreload" href="./gfx-common.js">
+<link rel="modulepreload" href="./gfx-post.js">
+<link rel="modulepreload" href="./world-shader.js">
+<link rel="modulepreload" href="./actor-renderer.js">
+<link rel="modulepreload" href="./gl-program.js">
+<link rel="modulepreload" href="./mesh-batches.js">
+<link rel="modulepreload" href="./models.js">
+<link rel="modulepreload" href="./network.js">
+<link rel="modulepreload" href="./vector.js">
+<link rel="modulepreload" href="./fixture-footprints.js">
+<link rel="modulepreload" href="./tile-payload.js">
+<link rel="modulepreload" href="./road-tunnels.js">
+<link rel="modulepreload" href="./photos.js">
+<link rel="modulepreload" href="./park-locations.js">
+<link rel="modulepreload" href="./pursuit.js">
+<link rel="modulepreload" href="./facade-look.js">
+<link rel="modulepreload" href="./architecture-shader.js">
+<link rel="modulepreload" href="./human-model.js">
+<link rel="modulepreload" href="./car-model.js">
+<link rel="modulepreload" href="./terrain-mesh.js">
+<link rel="modulepreload" href="./mesh-builder.js">
+<link rel="modulepreload" href="./surfaces.js">
+<link rel="preload" href="./materials/architecture-v18.bin" as="fetch" crossorigin>
+<link rel="preload" href="./world/atlas-13/architecture.json" as="fetch" crossorigin>
 </head>
 <body>
 <svg class="symbols" xmlns="http://www.w3.org/2000/svg">
@@ -54,7 +80,8 @@
    </section>
    <div id="health" class="glass" aria-label="耐久力" hidden><span>耐久力</span><i></i><i></i><i></i><i></i></div>
    <div id="threat" role="status" hidden></div>
-   <div class="compass" aria-label="現在の方角"><span id="compassText">N</span><div class="ticks"></div><b></b></div>
+   <div class="compass" aria-label="現在の方角"><span id="compassText">N</span><div class="ticks"></div><b></b><i id="compassTarget" hidden></i><small id="targetText" hidden></small></div>
+   <div id="fps" hidden aria-hidden="true"></div>
    <div id="transportHud" hidden>
      <span id="transportStatus" class="glass"></span>
      <button id="transportBtn" class="glass" hidden></button>
@@ -74,7 +101,7 @@
    <div class="panel-head"><h2 id="panelTitle">設定</h2><button id="closePanel" class="nav-btn only-icon" aria-label="閉じる"><svg><use href="#i-close"/></svg></button></div>
    <div id="panelBody"></div>
  </dialog>
- <div id="travel" hidden role="status"><div class="travel-inner"><svg aria-hidden="true"><use href="#i-compass"/></svg><strong>街を読み込み中</strong></div></div>
+ <div id="travel" hidden role="status"><div class="travel-inner"><svg aria-hidden="true"><use href="#i-compass"/></svg><strong>街を読み込み中</strong><div class="travel-bar" aria-hidden="true"><span id="travelBar"></span></div><span id="travelPercent">0%</span></div></div>
  <div id="damage" aria-hidden="true"></div>
  <div id="missionResult" hidden role="dialog" aria-modal="true" aria-labelledby="missionResultTitle">
    <section class="result-card glass"><div id="missionResultIcon" aria-hidden="true"></div><h2 id="missionResultTitle"></h2><p id="missionResultText"></p><button id="restart" class="action primary"><svg><use href="#i-arrow"/></svg> もう一度プレイ</button></section>
