@@ -1048,7 +1048,10 @@ window.addEventListener('keydown',e=>{
     if(!button.hidden&&!button.disabled){e.preventDefault();void useTransport(button.dataset.action);}
     return;
   }
-  if(e.code==='Escape'&&!document.pointerLockElement&&performance.now()-lockReleasedAt>400){e.preventDefault();openPanel();}
+  // Escape first leaves pointer lock or full screen, which the browser handles itself.
+  if(e.code==='Escape'&&!document.pointerLockElement&&!document.fullscreenElement&&performance.now()-lockReleasedAt>400){
+    e.preventDefault();openPanel();
+  }
 });
 for(const event of ['pointerup','pointercancel','lostpointercapture'])look.addEventListener(event,e=>{
   if(lookPointer?.id===e.pointerId){lookPointer=null;finishLook();}

@@ -667,7 +667,8 @@ export function createRenderer(canvas,{wait=true}={}){
     // Speed blur uses the previous position with the current rotation; its strength follows a
     // fixed shutter time, so it looks the same at any frame rate.
     let blur=0,blurReproject=null;
-    if(options.blur>0&&taa&&!reset&&moved>.004){
+    // Phones skip it unless the high quality setting asks for every effect.
+    if(options.blur>0&&taa&&(quality==='high'||!mobile)&&!reset&&moved>.004){
       blurReproject=product(cameraProjection(previousEye,previousEye.map((n,i)=>n+forward[i]),w/h,fov),inverse);
       blur=options.blur*Math.min(1,.0105/Math.max(step,1/240));
     }
