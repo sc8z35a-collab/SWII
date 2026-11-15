@@ -220,3 +220,50 @@ dialog{background:linear-gradient(160deg,rgba(28,35,38,.86),rgba(14,18,21,.9));b
   #joystick{background:rgba(16,21,24,.36);border-color:rgba(255,248,232,.28);-webkit-backdrop-filter:blur(12px);backdrop-filter:blur(12px);box-shadow:inset 0 0 0 10px rgba(255,255,255,.04)}
   #stick{background:rgba(240,212,155,.42);border-color:rgba(255,236,200,.7)}
 }
+
+/* RD II: ammunition, the three-dot reticle and hit feedback. */
+#weaponHud{position:absolute;left:50%;bottom:max(22px,env(safe-area-inset-bottom));transform:translateX(-50%);display:grid;grid-template-columns:auto auto;align-items:center;gap:3px 10px;padding:7px 13px 8px;min-width:150px}
+#weaponHud[hidden]{display:none}
+#weaponHud>svg{width:26px;height:26px;fill:none;stroke:var(--gold);stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+.weapon-text{display:flex;align-items:baseline;justify-content:space-between;gap:12px}
+.weapon-name{font:800 10px ui-monospace,monospace;letter-spacing:.2em;color:var(--gold)}
+.weapon-count{font:700 12px ui-monospace,monospace;color:#d9d2c0;white-space:nowrap}
+.weapon-count strong{font-size:20px;color:var(--cream);font-variant-numeric:tabular-nums}
+.weapon-count i{font-style:normal;margin:0 4px;opacity:.55}
+#weaponHud[data-state=low] .weapon-count strong{color:#ffb894}
+#weaponHud[data-state=empty] .weapon-count strong{color:#ff7a66}
+.weapon-rule{grid-column:1/-1;height:3px;border-radius:2px;background:rgba(255,250,235,.16);overflow:hidden}
+#reloadProgress{display:block;height:100%;width:100%;background:linear-gradient(90deg,#f0d49b,#fff1cf);box-shadow:0 0 10px #f0d49b88;transform-origin:left}
+#weaponNote{grid-column:1/-1;font-size:9px;letter-spacing:.08em;color:#e5ddc9;min-height:11px;text-align:center}
+#weaponNote:empty{display:none}
+#reticle{width:26px;height:26px;background:none;box-shadow:none;border:0;border-radius:0}
+#reticle i{position:absolute;top:50%;left:50%;width:3px;height:3px;margin:-1.5px;border-radius:50%;background:rgba(255,250,238,.92);box-shadow:0 0 0 1px rgba(0,0,0,.35),0 0 8px rgba(0,0,0,.5)}
+#reticle i:first-child{transform:translateX(-7px)}
+#reticle i:last-child{transform:translateX(7px)}
+#reticle[hidden]{display:none}
+#hitMark{position:absolute;top:50%;left:50%;width:30px;height:30px;transform:translate(-50%,-50%) rotate(45deg) scale(.7);opacity:0;pointer-events:none;
+  background:linear-gradient(#fff,#fff) 50% 0/2px 9px no-repeat,linear-gradient(#fff,#fff) 50% 100%/2px 9px no-repeat,linear-gradient(#fff,#fff) 0 50%/9px 2px no-repeat,linear-gradient(#fff,#fff) 100% 50%/9px 2px no-repeat;filter:drop-shadow(0 0 4px #000a)}
+#hitMark.show{animation:hit-mark .28s ease-out}
+#hitMark.down{filter:drop-shadow(0 0 6px #ffb060) sepia(1) saturate(6) hue-rotate(-18deg)}
+@keyframes hit-mark{0%{opacity:1;transform:translate(-50%,-50%) rotate(45deg) scale(1.15)}100%{opacity:0;transform:translate(-50%,-50%) rotate(45deg) scale(.72)}}
+#hitCount{position:absolute;top:calc(50% + 26px);left:50%;transform:translateX(-50%);font:700 11px ui-monospace,monospace;letter-spacing:.08em;color:#fff3da;text-shadow:0 1px 6px #000,0 0 12px #000a;opacity:0;transition:opacity .35s;white-space:nowrap;pointer-events:none}
+#hitCount.show{opacity:1;transition:none}
+#reloadBtn svg{fill:none;stroke:currentColor;stroke-width:2;stroke-linecap:round;stroke-linejoin:round}
+#fireBtn{display:none}
+@media (any-pointer:coarse){
+ #fireBtn{display:grid;place-items:center;position:absolute;right:max(26px,env(safe-area-inset-right));bottom:max(124px,calc(env(safe-area-inset-bottom) + 104px));width:66px;height:66px;border-radius:50%;border-color:rgba(255,190,150,.55);background:radial-gradient(circle at 50% 38%,rgba(120,44,32,.72),rgba(46,18,16,.72))}
+ #fireBtn svg{width:30px;height:30px;fill:none;stroke:#ffe2c4;stroke-width:1.5;stroke-linejoin:round;stroke-linecap:round}
+ #fireBtn:active{transform:scale(.94);background:radial-gradient(circle at 50% 38%,rgba(190,70,44,.85),rgba(80,26,20,.8))}
+ #weaponHud{bottom:max(16px,env(safe-area-inset-bottom));padding:5px 10px 6px;min-width:128px}
+}
+@media(max-height:530px) and (orientation:landscape){
+ #fireBtn{width:56px;height:56px;right:max(14px,env(safe-area-inset-right));bottom:max(96px,calc(env(safe-area-inset-bottom) + 84px))}
+ #weaponHud{bottom:max(8px,env(safe-area-inset-bottom));gap:2px 8px}
+ #weaponHud>svg{width:20px;height:20px}.weapon-count strong{font-size:16px}
+}
+@media(max-width:640px) and (orientation:portrait){
+ #weaponHud{bottom:max(64px,calc(env(safe-area-inset-bottom) + 56px))}
+ #fireBtn{right:max(15px,env(safe-area-inset-right))}
+}
+@media (prefers-reduced-motion:reduce){#hitMark.show{animation-duration:.01s}}
+#threat[data-level=trace]{background:rgba(64,50,18,.56);border-color:rgba(240,212,155,.5);box-shadow:0 0 22px rgba(240,200,120,.16)}

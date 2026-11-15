@@ -172,7 +172,12 @@ test('the skyline contains distinct tall forms and every lobby has a walkable en
   assert.ok(stats.heightBands.length>=40);
   assert.ok(stats.heightBands.at(-1)>=400);
   assert.equal(towers.length,stats.lobbies);
-  assert.equal(new Set(towers.map(tower=>tower.style)).size,towers.length);
+  // Twenty-eight original towers, and ten further forms that each stand twice.
+  assert.equal(new Set(towers.map(tower=>tower.style)).size,38);
+  assert.equal(stats.addedTowers,20);assert.equal(towers.length,48);
+  assert.equal(stats.addedStreetStyles,60);assert.equal(stats.streetStyles,104);
+  assert.ok(stats.appearanceCombinations>5_000_000&&stats.buildingCombinations>100_000_000);
+  assert.equal(stats.damageKinds,16);assert.ok(stats.damageRecipes>5000);
   assert.equal(new Set(towers.map(tower=>tower.city)).size,cities.length);
   assert.ok(towers.filter(tower=>tower.height>=300).length>=5);
   assert.ok(skyline.taper.length>16&&skyline.tube.length>16&&skyline.box.length>16);

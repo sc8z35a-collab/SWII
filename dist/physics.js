@@ -5,7 +5,7 @@ import {stepVehicle} from './driving.js';
 import {tunnelSupport} from './road-tunnels.js';
 import {stationSupport} from './metro.js';
 
-export const PROTOCOL=3;
+export const PROTOCOL=4;
 export const STEP_MS=1000/60;
 export const MOVE_INTERVAL=100;
 export const MAX_BATCH_MS=230;

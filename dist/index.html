@@ -4,7 +4,7 @@
 <meta charset="utf-8">
 <meta name="viewport" content="width=device-width, initial-scale=1, viewport-fit=cover">
 <meta name="theme-color" content="#111617">
-<meta name="description" content="アトランティス。散らばった本を集め、空から追いかけてくるゲルニカをかわす3Dサバイバル。">
+<meta name="description" content="アトランティス。散らばった本を集め、三連装拳銃RD IIで追跡者を退け、空から追いかけてくるゲルニカをかわす3Dサバイバル。">
 <title>ATLANTIS — アトランティス</title>
 <link rel="stylesheet" href="./style.css">
 <script type="module" src="./game.js"></script>
@@ -23,6 +23,8 @@
  <symbol id="i-compass" viewBox="0 0 24 24"><circle cx="12" cy="12" r="9"/><path d="m15.5 8.5-2 5-5 2 2-5 5-2Z"/></symbol>
  <symbol id="i-mouse" viewBox="0 0 24 24"><rect x="6" y="3" width="12" height="18" rx="5"/><path d="M12 6v4"/></symbol>
  <symbol id="i-phone" viewBox="0 0 24 24"><rect x="4" y="7" width="16" height="10" rx="2"/><path d="M7 11v2m10-1h.1"/></symbol>
+ <symbol id="i-gun" viewBox="0 0 24 24"><path d="M2 7h17v2.4l2 .6v2H12l-1.2 2.4H8.5L7.4 19H3.6l1.2-6H2V7Z"/><path d="M5 9.4h11M9 12v1.6"/></symbol>
+ <symbol id="i-reload" viewBox="0 0 24 24"><path d="M19 6v5h-5"/><path d="M19 11a7.5 7.5 0 1 0 1.2 5"/></symbol>
 </svg>
 <div id="stage">
  <canvas id="scene" aria-label="3Dの街並み"></canvas>
@@ -40,7 +42,7 @@
    <div class="intro-content">
      <h1>ATLANTIS<span>.</span></h1>
      <div class="intro-jp">街に散らばった本</div>
-     <p>路上の本を10冊拾い、塔の下の鳥居をくぐる。</p>
+     <p>路上の本を10冊拾い、塔の下の鳥居をくぐる。追ってくるものは三連装拳銃「RD II」で気絶させられる。</p>
      <div class="intro-actions">
        <button class="action primary" id="start" disabled><svg><use href="#i-compass"/></svg><span id="startText">ゲームを始める</span><svg class="next"><use href="#i-arrow"/></svg></button>
      </div>
@@ -63,11 +65,20 @@
    <div class="hud-bottom">
      <div class="control-hint"><svg><use href="#i-mouse"/></svg><span id="controlHint">WASD 移動 · ドラッグ 視点</span></div>
      <div class="hud-actions">
+       <button id="reloadBtn" class="glass" aria-keyshortcuts="R"><svg><use href="#i-reload"/></svg><span>リロード</span></button>
        <button id="vehicleBtn" class="glass" aria-keyshortcuts="V"><svg><use href="#i-car"/></svg><span id="vehicleLabel">車に乗る</span></button>
      </div>
    </div>
-   <div class="touch-controls"><div id="joystick" aria-label="移動スティック"><div id="stick"></div></div><button id="runBtn" class="glass" aria-pressed="false">走る</button></div>
-   <div id="reticle"></div>
+   <section id="weaponHud" class="glass" aria-label="拳銃 RD II の残弾">
+     <svg aria-hidden="true"><use href="#i-gun"/></svg>
+     <div class="weapon-text"><span class="weapon-name">RD II</span><span class="weapon-count"><strong id="ammoMag">120</strong><i>/</i><span id="ammoReserve">130</span></span></div>
+     <div class="weapon-rule"><span id="reloadProgress"></span></div>
+     <span id="weaponNote"></span>
+   </section>
+   <div class="touch-controls"><div id="joystick" aria-label="移動スティック"><div id="stick"></div></div><button id="runBtn" class="glass" aria-pressed="false">走る</button><button id="fireBtn" class="glass" aria-label="撃つ"><svg><use href="#i-gun"/></svg></button></div>
+   <div id="reticle"><i></i><i></i><i></i></div>
+   <div id="hitMark" aria-hidden="true"></div>
+   <div id="hitCount" role="status"></div>
  </section>
  <div id="rotateNotice" class="glass"><svg><use href="#i-phone"/></svg> 横画面で広く見渡せます</div>
  <dialog id="panel" aria-labelledby="panelTitle">

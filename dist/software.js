@@ -264,7 +264,7 @@ export function softwareRenderer(canvas,groundAt){
         const pos=data.slice(i,i+3),x=data.slice(i+3,i+6),y=data.slice(i+6,i+9),z=data.slice(i+9,i+12);
         const rawMat=Math.floor(data[i+15]),lift=rawMat>=LIFT_MATERIAL_OFFSET;
         const color=data.slice(i+12,i+15),mat=lift?rawMat-LIFT_MATERIAL_OFFSET:rawMat,height=Math.hypot(...y);
-        const accessory=data[i+15]-rawMat>.1,look=facadeAppearance(lift?data[i+15]-LIFT_MATERIAL_OFFSET:data[i+15]);
+        const accessory=data[i+15]-rawMat>=.2499,look=facadeAppearance(lift?data[i+15]-LIFT_MATERIAL_OFFSET:data[i+15]);
         const layer=materialLayer(mat,look?.era);
         const roofAxes=mat===14?[normalize(x),normalize(z),pos]:null;
         const isGround=kind==='box'&&height<=.55&&pos[1]<.14&&(mat===1||mat===3||mat===9)&&

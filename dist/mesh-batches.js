@@ -1,4 +1,5 @@
 import {toTile} from './geography.js';
+import {DETAIL_FLAG} from './facade-look.js';
 
 // Draw opaque buildings before terrain so the depth buffer rejects hidden ground fragments.
 const drawOrder=['box','chamfer','taper','roof','window','tube','cone','pyramid','ball','tri','pane'];
@@ -32,7 +33,7 @@ export function meshBatch(meshes,terrain){
     for(const source of sources){
       if(!source)continue;
       length+=source.length;
-      for(let i=15;i<source.length;i+=16)if(source[i]%1>.1)details+=16;
+      for(let i=15;i<source.length;i+=16)if(source[i]%1>=DETAIL_FLAG)details+=16;
     }
     const baseLength=length-details;
     const baseBounds=emptyBounds(),detailBounds=emptyBounds();
@@ -40,7 +41,7 @@ export function meshBatch(meshes,terrain){
     for(const source of sources){
       if(!source)continue;
       for(let i=0;i<source.length;i+=16){
-        const detail=source[i+15]%1>.1;
+        const detail=source[i+15]%1>=DETAIL_FLAG;
         const at=detail?detailAt:baseAt;
         for(let n=0;n<16;n++)data[at+n]=source[i+n];
         includeInstance(detail?detailBounds:baseBounds,kind,source,i);

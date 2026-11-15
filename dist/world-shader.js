@@ -1,4 +1,4 @@
-import {APPEARANCE_SCALE,eraProfiles,windowProfiles} from './facade-look.js';
+import {APPEARANCE_CODES,APPEARANCE_SCALE,eraProfiles,windowProfiles} from './facade-look.js';
 import {architectureShader} from './architecture-shader.js';
 import {APARTMENT_GLASS,EXHAUST,HEAT_METAL,IGNITION,LIFT_MATERIAL_OFFSET,ROOM_MATERIAL_OFFSET,SHOCK,SPIRIT,DUST,LEATHER,PAPER,SOOT,SHIELD_TILE,CERAMIC_SHELL} from './architecture-materials.js';
 import {SIGNAL_GREEN,SIGNAL_RED,STREET_LAMP} from './street-lights.js';
@@ -102,6 +102,10 @@ vec3 oceanHorizon(vec3 color,vec3 d){
   float haze=1.-smoothstep(-.035,-.0015,d.y);
   return mix(color,mix(skyLUT(vec3(d.x,.012,d.z)),water,haze),toward);
 }
+// In the light mode nothing is drawn beyond the view radius: surfaces dissolve into the sky before it.
+float viewEdge(vec3 p){
+  return uQuality<.5?smoothstep(.60,.96,length(uEye.xz-p.xz)/max(uViewRadius,1.)):0.;
+}
 vec3 aerial(vec3 color,vec3 p,float edge){
   vec3 d=p-uEye;
   float dist=length(d);
@@ -164,6 +168,9 @@ layout(location=6)in vec4 aStyle;
 uniform mat4 uVP;
 uniform float uTime;
 uniform int uKind;
+// xyz: the direction the camera faces, w: the drawing radius in meters (0 draws everything).
+uniform vec4 uViewCone;
+uniform vec3 uViewEye;
 out vec3 wPos,wNormal,localPos,localNormal,extent;
 out vec3 surfaceColor;
 flat out vec4 style;
@@ -173,6 +180,15 @@ ${glslCommon}
 void main(){
   mat3 shape=mat3(aX,aY,aZ);
   extent=vec3(length(aX),length(aY),length(aZ));
+  if(uViewCone.w>0.){
+    // Whole instances beyond the radius or behind the viewer are dropped before rasterization.
+    vec3 toward=aCenter-uViewEye;
+    float reach=uKind==${KIND_IDS.tri}?max(extent.x,extent.z):.5*(extent.x+extent.y+extent.z);
+    if(length(toward.xz)-reach>uViewCone.w||dot(toward,uViewCone.xyz)<-reach-1.5){
+      gl_Position=vec4(2.,2.,2.,1.);
+      return;
+    }
+  }
   vec3 position=aPosition;
   float mat=floor(aStyle.a);
   if(mat>=${LIFT_MATERIAL_OFFSET}.)mat-=${LIFT_MATERIAL_OFFSET}.;
@@ -269,7 +285,7 @@ vec4 effectColor(float mat){
       color=tint*(2.6+3.*exp(-r*r*6.));
     }
   }
-  color=aerial(color,wPos,0.);
+  color=aerial(color,wPos,viewEdge(wPos));
   vec4 o=encodeOutput(color,0.);
   return vec4(o.rgb,saturate(a*fract(style.a)));
 }
@@ -287,9 +303,23 @@ vec4 glassPane(vec3 n,vec3 v,float mat){
   vec3 color=(reflection*F+glint+tint*body)/max(alpha,1e-3);
   float d=length(uEye-wPos);
   alpha*=1.-smoothstep(60.,320.,d)*.55;
-  color=aerial(color,wPos,0.);
+  color=aerial(color,wPos,viewEdge(wPos));
   vec4 o=encodeOutput(color,0.);
   return vec4(o.rgb,alpha);
+}
+// The level (0…1) of one of the sixteen kinds of damage in a building's recipe.
+float damageLevel(uint recipe,int kind,float weather){
+  float level=float((recipe>>uint(kind*2))&3u)/3.;
+  return max(0.,level*(.3+.7*weather)-.22*(1.-weather));
+}
+// Bump mapping for a relief that is only known per pixel.
+vec3 embossed(vec3 n,float height,float strength){
+  vec3 dpx=dFdx(wPos),dpy=dFdy(wPos);
+  float dhx=dFdx(height),dhy=dFdy(height);
+  vec3 r1=cross(dpy,n),r2=cross(n,dpx);
+  float det=dot(dpx,r1);
+  vec3 grad=sign(det)*(dhx*r1+dhy*r2);
+  return normalize(abs(det)*n-strength*grad);
 }
 vec3 bevelNormal(vec3 n){
   vec3 halfSize=extent*.5;
@@ -316,9 +346,10 @@ void main(){
   if(mat>=26.&&mat<29.)base=surfaceColor;
   float footprint=max(length(dFdx(wPos)),length(dFdy(wPos)));
   int code=int(round(fract(style.a)*${APPEARANCE_SCALE}.))%${APPEARANCE_SCALE/4}-1;
-  bool varied=code>=0&&code<${eraProfiles.length*64};
-  int era=varied?code/64:3,pattern=varied?code%8:0;
-  float weather=varied?float((code/8)%8)/7.:0.;
+  bool varied=code>=0&&code<${APPEARANCE_CODES};
+  int look=varied?code%${eraProfiles.length*64}:0;
+  int era=varied?look/64:3,pattern=varied?look%8:0;
+  float weather=varied?float((look/8)%8)/7.:0.;
   vec4 proportions=eraProfiles[era],opening=windowProfiles[pattern];
   bool groundLike=mat==1.||mat==2.||mat==3.||mat==9.||(mat>=26.&&mat<29.)||(mat>=35.&&mat<=38.)||mat==47.;
   if(uKind==${KIND_IDS.box}&&!groundLike&&footprint<.05)n=bevelNormal(n);
@@ -356,6 +387,161 @@ void main(){
       base*=1.-weather*fissure*broken*.39*(1.-smoothstep(.04,.18,footprint));
     }
     if(pattern==4||pattern==7)base=mix(base,base*vec3(.84,1.03,.79),weather*lower*.62);
+
+    // Damage and ageing. Each building carries a recipe: two bits per kind, hashed from its
+    // appearance code, and the wear level scales all of them. Placement differs on every wall.
+    uint recipe=ihash(uint(code)*747796405u+2891336453u);
+    vec2 w=wall+vec2(hash(center.xz*.37),hash(center.zx*.53+7.))*61.;
+    float upper=extent.y*.5-localPos.y,relief=0.,amount;
+    float near=1.-smoothstep(.03,.22,footprint),mid=1.-smoothstep(.1,.62,footprint);
+    bool hard=!(mat==4.||mat==19.||mat==21.||mat==50.||mat==53.||mat==25.);
+    bool streetLevel=extent.y<5.6;
+    amount=damageLevel(recipe,7,weather);
+    if(amount>0.){
+      // Street grime climbs from the pavement and gathers under the eaves.
+      float band=lower*.36+(1.-smoothstep(0.,1.6,upper))*.17;
+      base*=1.-amount*band*(.55+.45*noise(w*vec2(.9,.4)+13.));
+    }
+    amount=damageLevel(recipe,12,weather);
+    if(amount>0.){
+      // The sun bleaches the upper storeys.
+      float fade=smoothstep(0.,1.,localPos.y/max(extent.y,.01)+.5)*amount*.36;
+      base=mix(base,vec3(luminance(base))*1.07+.02,fade);
+    }
+    if(uQuality>.5&&mid>.01){
+      amount=damageLevel(recipe,8,weather)*mid;
+      if(amount>0.){
+        // Dark tracks where rain water runs down from ledges.
+        float drip=smoothstep(.52,.86,noise(w*vec2(5.2,.11)+41.))*smoothstep(.3,.7,noise(w*vec2(.5,.07)+7.));
+        base*=1.-amount*drip*.34;roughness=mix(roughness,.5,amount*drip*.3);
+      }
+      amount=damageLevel(recipe,4,weather)*mid;
+      if(amount>0.){
+        // Rust bleeding from fixings: narrow streaks that start at an anchor and fade downward.
+        float column=floor(w.x*1.7),chance=hash(vec2(column,31.));
+        float across=fract(w.x*1.7)-.5+.1*(noise(vec2(w.y*.8,column))-.5);
+        float start=chance*max(extent.y-.6,.2),below=upper-start;
+        float streak=(1.-smoothstep(.02,.11+.12*chance,abs(across)))*smoothstep(0.,.25,below)*exp(-max(below,0.)*.55);
+        streak*=step(.52,chance)*(.6+.4*noise(w*vec2(9.,1.3)));
+        base=mix(base,vec3(.40,.19,.07)*(.8+.4*noise(w*23.)),saturate(streak*amount*1.25));
+        roughness=mix(roughness,.9,streak*amount);
+      }
+      amount=damageLevel(recipe,5,weather)*mid;
+      if(amount>0.){
+        // Efflorescence: salts drawn out of damp masonry bloom white near the ground.
+        float bloom=smoothstep(.5,.82,noise(w*vec2(.9,.6)+23.)*.7+noise(w*5.1)*.3)*(lower*.9+.1);
+        base=mix(base,vec3(.86,.85,.80),bloom*amount*.55);roughness=mix(roughness,.95,bloom*amount);
+      }
+      amount=damageLevel(recipe,6,weather)*mid;
+      if(amount>0.){
+        // Moss and algae in the damp zones.
+        float damp=noise(w*vec2(.7,.25)+31.)+(streetLevel?lower*.6:lower*.18)+(1.-smoothstep(0.,.5,upper))*.35-.3;
+        float growth=smoothstep(.42,.78,damp)*(.55+.45*noise(w*25.));
+        base=mix(base,mix(vec3(.13,.2,.08),vec3(.25,.3,.12),noise(w*6.3)),growth*amount*.82);
+        roughness=mix(roughness,.96,growth*amount);relief+=growth*amount*.6;
+      }
+      amount=damageLevel(recipe,15,weather)*mid;
+      if(amount>0.&&hard){
+        // Ivy climbing in ragged sheets, each leaf catching the light differently.
+        // It roots at street level; higher up only scattered patches survive.
+        float sheet=noise(w*vec2(.5,.33)+71.)*.6+noise(w*3.7)*.25+noise(w*13.)*.15+(streetLevel?lower-.4:-.3)*.3;
+        float ivy=smoothstep(.56-.1*amount,.6-.1*amount,sheet);
+        float leaf=noise(w*17.+3.);
+        base=mix(base,mix(vec3(.06,.13,.045),vec3(.16,.26,.085),leaf)*(.75+.5*noise(w*41.)),ivy);
+        roughness=mix(roughness,.62,ivy);occlusion*=1.-.3*ivy*(1.-leaf);relief+=ivy*(.6+leaf)*1.6;
+      }
+      amount=damageLevel(recipe,14,weather)*mid;
+      if(amount>0.){
+        // White streaks under the ledges where birds roost.
+        float perch=step(.6,hash(vec2(floor(w.x*2.3),77.)));
+        float run=(1.-smoothstep(.03,.16,abs(fract(w.x*2.3)-.5)))*(1.-smoothstep(.05,1.1+hash(vec2(floor(w.x*2.3),5.)),upper));
+        base=mix(base,vec3(.84,.83,.78),perch*run*amount*.6*(.5+.5*noise(w*vec2(30.,4.))));
+      }
+      if(hard){
+        amount=damageLevel(recipe,10,weather)*mid;
+        if(amount>0.){
+          // Repairs: rectangles of newer mortar or paint that never quite match.
+          vec2 q=w*vec2(.23,.31),cell=floor(q),f=fract(q);
+          vec2 size=vec2(.3+.45*hash(cell+1.),.25+.45*hash(cell+2.));
+          vec2 inset=smoothstep(vec2(.15),vec2(.165),f)*(1.-smoothstep(vec2(.15)+size,vec2(.165)+size,f));
+          float mend=inset.x*inset.y*step(.87-.12*amount,hash(cell+17.));
+          vec3 tone=mix(base*vec3(1.1,1.07,1.),vec3(luminance(base))*vec3(.92,.94,.97),hash(cell+5.));
+          base=mix(base,tone,mend*.8);roughness=mix(roughness,.78,mend);relief+=mend*.35;
+        }
+        amount=damageLevel(recipe,2,weather)*mid;
+        if(amount>0.){
+          // Spalling: the facing has broken away and shows the rough core, with a bright fresh rim.
+          float field=noise(w*.55+11.)*.62+noise(w*2.3)*.26+noise(w*9.)*.12+lower*.06;
+          float lost=smoothstep(.635-.11*amount,.65-.11*amount,field);
+          float rim=lost*(1.-smoothstep(.65-.11*amount,.685-.11*amount,field));
+          vec3 core=mix(vec3(.36,.33,.3),base*.62,.45)*(.72+.5*noise(w*17.));
+          base=mix(base,core,lost);base+=rim*.07;
+          roughness=mix(roughness,.95,lost);occlusion*=1.-.25*lost;relief-=lost*2.4;
+        }
+        amount=damageLevel(recipe,3,weather)*mid;
+        if(amount>0.&&(mat==5.||mat==17.||mat==12.||mat==48.||mat==8.)){
+          // Peeling paint: curled flakes over a paler undercoat.
+          float flakes=noise(w*3.1+5.)*.55+noise(w*9.7)*.3+noise(w*27.)*.15;
+          float peeled=smoothstep(.6-.09*amount,.615-.09*amount,flakes);
+          float curl=peeled*(1.-smoothstep(.615-.09*amount,.66-.09*amount,flakes));
+          base=mix(base,vec3(luminance(base))*1.16+.04,peeled*.72);
+          base*=1.-curl*.3;relief-=peeled*.8-curl*.9;
+        }
+        if(near>.01){
+          amount=damageLevel(recipe,0,weather)*near;
+          if(amount>0.){
+            // A web of hairline cracks.
+            float web=1.-smoothstep(0.,.007+footprint*.5,abs(noise(w*vec2(1.3,1.1))-.5));
+            web=max(web,(1.-smoothstep(0.,.006+footprint*.5,abs(noise(w*vec2(3.7,3.1)+9.)-.5)))*.6);
+            web*=smoothstep(.42,.68,noise(w*.21+3.));
+            base*=1.-amount*web*.5;relief-=amount*web*.9;
+          }
+          amount=damageLevel(recipe,1,weather)*near;
+          if(amount>0.){
+            // One structural crack stepping diagonally through the wall.
+            float seam=w.x*.19+w.y*(.17+.1*hash(vec2(float(code),3.)))+noise(w*vec2(1.6,.7))*.32+noise(w*7.)*.03;
+            float crack=1.-smoothstep(.003,.012+footprint*.35,abs(fract(seam)-.5)*2.);
+            crack*=smoothstep(.5,.72,noise(w*vec2(.16,.2)+19.));
+            base*=1.-amount*crack*.78;occlusion*=1.-amount*crack*.5;relief-=amount*crack*2.6;
+          }
+          amount=damageLevel(recipe,13,weather)*near;
+          if(amount>0.){
+            // Pits and chipped arrises.
+            float pit=smoothstep(.76,.86,noise(w*6.7+51.))*smoothstep(.3,.6,noise(w*.9+5.));
+            base*=1.-amount*pit*.42;relief-=amount*pit*1.6;
+          }
+          amount=damageLevel(recipe,9,weather)*near;
+          if(amount>0.&&streetLevel){
+            // Gouges: four parallel furrows torn through the surface at arm's reach of a giant.
+            vec2 q=w*vec2(.17,.24)+5.,cell=floor(q),f=fract(q)-.5;
+            float chance=hash(cell+3.),angle=(hash(cell+9.)-.5)*1.5+.95;
+            vec2 dirn=vec2(cos(angle),sin(angle));
+            float u=dot(f,dirn),across=dot(f,vec2(-dirn.y,dirn.x));
+            float taper=(1.-smoothstep(.2,.4,abs(u)))*(1.-smoothstep(.13,.17,abs(across)));
+            float furrow=(1.-smoothstep(.06,.2,abs(fract(across*11.5)-.5)))*taper*step(.83-.1*amount,chance);
+            base=mix(base,base*1.45+.07,furrow*.55);
+            base*=1.-furrow*(1.-smoothstep(0.,.08,abs(fract(across*11.5)-.5)))*.75;
+            roughness=mix(roughness,.92,furrow);relief-=furrow*3.2;
+          }
+        }
+        amount=damageLevel(recipe,11,weather)*mid;
+        if(amount>.3&&streetLevel){
+          // Sprayed tags at street level, faded by the weather like everything else.
+          vec2 q=vec2(w.x*.19,0.),cell=floor(q);
+          float chance=hash(cell+41.);
+          vec2 f=vec2(fract(q.x)-.5,(localPos.y+extent.y*.5-1.45)*.42);
+          float body=1.-smoothstep(.2,.36,length(f*vec2(1.,1.25)));
+          float stroke=smoothstep(.47,.52,noise(vec2(w.x,localPos.y)*vec2(2.6,3.4)+cell*7.)*.65+noise(vec2(w.x,localPos.y)*9.)*.35);
+          float outline=smoothstep(.43,.47,noise(vec2(w.x,localPos.y)*vec2(2.6,3.4)+cell*7.)*.65+noise(vec2(w.x,localPos.y)*9.)*.35)-stroke;
+          float tone=hash(cell+53.);
+          vec3 ink=tone<.25?vec3(.08,.42,.45):tone<.5?vec3(.62,.1,.36):tone<.75?vec3(.78,.62,.1):vec3(.86,.86,.84);
+          float cover=body*step(.74,chance)*(.55+.45*weather);
+          base=mix(base,vec3(.04,.04,.05),outline*cover*.8);
+          base=mix(base,ink*(.8+.3*noise(w*31.)),stroke*cover*.86);
+        }
+      }
+    }
+    if(relief!=0.&&near>.01)n=embossed(n,relief*.006,near);
   }
 
   // Ground surfaces.
@@ -662,7 +848,7 @@ void main(){
     vec3 color=albedo*E*occlusion*(.82+.18*n.y)+albedo*uSunColor*max(dot(n,uSun),0.)*.05;
     color+=environment(reflect(-v,n),roughness)*envBRDF(vec3(f0),roughness,NoV)*.4;
     if(sheen>0.)color+=albedo*E*sheen*pow(1.-NoV,3.)*.5;
-    color=aerial(color+emission,wPos,0.);
+    color=aerial(color+emission,wPos,viewEdge(wPos));
     frag=encodeOutput(color,.85);
     return;
   }
@@ -688,6 +874,7 @@ void main(){
   vec2 boundary=vec2(4000.,3000.)-abs(wPos.xz);
   edge=max(edge,1.-smoothstep(0.,113.,min(boundary.x,boundary.y)));
   if(mat==${AIRCRAFT}.||airborne)edge=min(edge,.5);
+  edge=max(edge,viewEdge(wPos));
   color=aerial(color,wPos,edge);
   frag=encodeOutput(color,share);
 }`;
