@@ -13,6 +13,8 @@ export const glslLighting=`
 uniform vec3 uEye,uSun,uSunColor,uAmbUp,uAmbDown,uAmbSun,uAmbAnti,uBounce,uGroundRad;
 uniform float uNight,uTime,uHaze,uFrame,uShadow,uDynamic,uEncode,uExposure,uViewRadius,uOcean,uUnderground,uQuality;
 uniform vec2 uOceanBearing;
+uniform vec4 uFlash;
+uniform vec3 uFlashColor;
 uniform mat4 uShadowVP0,uShadowVP1;
 uniform vec4 uShadowRange;
 uniform highp sampler2DShadow uShadowMap;
@@ -21,6 +23,23 @@ ${glslCommon}
 ${glslBRDF}
 ${glslSkyLookup}
 ${glslClouds}
+// Set at the top of each main (in uniform control flow) by beginShading.
+float specularVariance=0.;
+vec3 shadePosition=vec3(0.);
+// Geometric specular antialiasing (Tokuyoshi and Kaplanyan): where the normal turns quickly across a
+// pixel, the highlight is widened instead of sparkling on rounded edges, spheres and car bodies.
+void beginShading(vec3 position,vec3 geometricNormal){
+  vec3 dx=dFdx(geometricNormal),dy=dFdy(geometricNormal);
+  specularVariance=min(.5*(dot(dx,dx)+dot(dy,dy)),.18);
+  shadePosition=position;
+}
+// One dynamic point light: an explosion or the launch engines. uFlash.w is the intensity at 1 m.
+vec3 flashIrradiance(vec3 n){
+  if(uFlash.w<=0.)return vec3(0.);
+  vec3 d=uFlash.xyz-shadePosition;
+  float r2=dot(d,d);
+  return uFlashColor*uFlash.w*max(dot(n,d)*inversesqrt(r2+1e-4),0.)/(r2+6.);
+}
 vec3 ambientLight(vec3 n){
   vec3 toward=normalize(vec3(uSun.x,0.,uSun.z)+vec3(1e-4,0.,0.));
   float side=dot(n,toward);
@@ -134,6 +153,7 @@ vec3 shadeSurface(vec3 albedo,vec3 n,vec3 v,float roughness,float metal,float f0
   vec3 l=uSun,h=normalize(v+l);
   float NoL=max(dot(n,l),0.),NoV=max(dot(n,v),1e-4),NoH=max(dot(n,h),0.),VoH=max(dot(v,h),0.);
   float a=max(roughness*roughness,.0025);
+  a=sqrt(min(a*a+specularVariance,1.));
   vec3 specColor=mix(vec3(f0),albedo,metal),diffColor=albedo*(1.-metal);
   vec3 F=F_Schlick(specColor,VoH);
   vec3 sun=uSunColor*shadow;
@@ -147,6 +167,7 @@ vec3 shadeSurface(vec3 albedo,vec3 n,vec3 v,float roughness,float metal,float f0
   float specOcclusion=saturate(pow(NoV+occlusion,exp2(-16.*a-1.))-1.+occlusion);
   vec3 ambientSpec=environment(reflect(-v,n),roughness)*envBRDF(specColor,roughness,NoV)*specOcclusion;
   vec3 ambient=ambientDiffuse+ambientSpec;
+  direct+=diffColor/PI*flashIrradiance(n);
   share=luminance(ambient)/max(luminance(ambient+direct),1e-5);
   return direct+ambient;
 }
@@ -304,6 +325,7 @@ vec3 bevelNormal(vec3 n,float strength){
 }
 void main(){
   vec3 n=normalize(wNormal);
+  beginShading(wPos,n);
   vec3 v=normalize(uEye-wPos);
   float dist=length(uEye-wPos);
   float mat=floor(style.a);

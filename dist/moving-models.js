@@ -26,12 +26,14 @@ export function meshFrame(meshes,{x,y,z,yaw,pitch=0}){
   return {point,part,right,up,forward,back};
 }
 const packColor=hex=>parseInt(hex,16);
-// Car instances for the detailed renderer: position, yaw, pitch, wheel spin, paint, flags, steering.
-export function drawCar(meshes,player,pitch=0,spin=0,steer=0){
+export const CAR_WRECK=1,CAR_BRAKE=2,CAR_REVERSE=4;
+// Car instances for the detailed renderer: position, yaw, pitch, wheel spin, paint, flags, steering,
+// and the body's own pitch and roll on its suspension. lights adds CAR_BRAKE and CAR_REVERSE.
+export function drawCar(meshes,player,pitch=0,spin=0,steer=0,{lights=0,bodyPitch=0,bodyRoll=0}={}){
   if(meshes.detailed){
     const paint=player.wreck?'373638':player.paint??'477582';
     (meshes.cars??=[]).push(player.x,player.y+(player.parked?-.006:.012),player.z,player.yaw,pitch,spin,
-      packColor(paint),player.wreck?1:0,steer,0,0,0,0,0,0,0);
+      packColor(paint),(player.wreck?CAR_WRECK:0)|(player.wreck?0:lights),steer,bodyPitch,bodyRoll,0,0,0,0,0);
     return;
   }
   const {part,right,up,back}=meshFrame(meshes,{...player,y:player.y+(player.parked?.014:.119),pitch});

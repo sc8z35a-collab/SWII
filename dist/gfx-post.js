@@ -1,5 +1,10 @@
 import {glslCommon,glslTonemap} from './gfx-common.js';
 
+// Range of log-average luminance (after the scene exposure) inside which eye adaptation leaves the
+// graded look alone: measured streets, skylines and road tunnels fall between .09 and .30, the metro
+// near 1. Darker views (a shaded wall filling the screen) open up and brighter ones close down.
+export const ADAPT_BAND=[.07,.42],ADAPT_BAND_UNDERGROUND=[.3,1.8];
+
 // Screen space passes that run after the scene has been drawn into a linear HDR target:
 // ambient occlusion, temporal antialiasing, bloom, tone mapping and grading.
 const fullscreen=`#version 300 es
@@ -197,10 +202,30 @@ ${decode}
 ${glslTonemap}
 uniform sampler2D uColor,uBloom,uDepth;
 uniform vec2 uTexel;
-uniform float uBloomStrength,uTime,uSharpen,uFXAA,uVignette,uHasBloom;
+uniform float uBloomStrength,uTime,uSharpen,uFXAA,uVignette,uHasBloom,uBlur;
 uniform vec4 uSunScreen;
 uniform vec3 uSunTint;
+uniform mat4 uBlurReproject;
+flat in float vSunSeen,vExposure;
 vec3 sceneColor(vec2 t){return sceneSample(uColor,t).rgb;}
+// Speed blur: camera translation only (the previous position seen with the current rotation),
+// so looking around stays sharp while fast travel streaks the surroundings.
+vec3 motionBlur(vec3 color){
+  float d=textureLod(uDepth,uv,0.).r;
+  vec4 p=uBlurReproject*vec4(uv*2.-1.,d*2.-1.,1.);
+  if(p.w<=1e-4)return color;
+  vec2 v=(uv-(p.xy/p.w*.5+.5))*uBlur;
+  float pixels=length(v/uTexel);
+  if(pixels<1.)return color;
+  v*=min(1.,40./pixels);
+  float j=ign(gl_FragCoord.xy);
+  vec3 sum=color;
+  for(int i=0;i<6;i++){
+    vec2 t=clamp(uv+v*((float(i)+j)/6.-.5),uTexel*.5,1.-uTexel*.5);
+    sum+=sceneColor(t);
+  }
+  return sum/7.;
+}
 float lumaOf(vec3 c){return sqrt(luminance(c/(1.+c)));}
 vec3 fxaa(vec2 t){
   vec3 rgbM=sceneColor(t);
@@ -231,17 +256,10 @@ void main(){
       color=clamp(color+detail*amount*2.,lo,hi);
     }
   }
+  if(uBlur>0.)color=motionBlur(color);
   if(uHasBloom>.5)color+=textureLod(uBloom,uv,0.).rgb*uBloomStrength;
-  float sunSeen=0.;
-  if(uSunScreen.w>0.){
-    for(int i=0;i<5;i++){
-      vec2 o=vec2(i==1?1.:i==2?-1.:0.,i==3?1.:i==4?-1.:0.)*.004;
-      vec2 t=uSunScreen.xy+o;
-      bool inside=t.x>0.&&t.x<1.&&t.y>0.&&t.y<1.;
-      float bright=inside?luminance(sceneColor(t)):0.;
-      sunSeen+=inside&&textureLod(uDepth,t,0.).r>=1.?.2*smoothstep(25.,140.,bright):0.;
-    }
-  }
+  color*=vExposure;
+  float sunSeen=vSunSeen;
   if(uSunScreen.w>0.&&sunSeen>.01){
     // Sun shafts: march toward the sun and count open sky, so buildings and trees cut rays.
     vec2 toSun=uSunScreen.xy-uv;
@@ -285,32 +303,92 @@ void main(){
   frag=vec4(color,1.);
 }`;
 
-function compile(gl,vs,fs,uniforms){
-  const make=(type,code)=>{
-    const shader=gl.createShader(type);
-    gl.shaderSource(shader,code);
-    gl.compileShader(shader);
-    if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS))throw Error(gl.getShaderInfoLog(shader)+'\n'+code.split('\n').map((l,i)=>(i+1)+': '+l).join('\n'));
-    return shader;
-  };
-  const program=gl.createProgram(),a=make(gl.VERTEX_SHADER,vs),b=make(gl.FRAGMENT_SHADER,fs);
-  gl.attachShader(program,a);gl.attachShader(program,b);gl.linkProgram(program);
-  if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
-  gl.deleteShader(a);gl.deleteShader(b);
-  return {program,u:Object.fromEntries(uniforms.map(n=>[n,gl.getUniformLocation(program,'u'+n)]))};
-}
+// Per-frame values for the final pass: whether the sun disc is in open sky and the exposure from
+// eye adaptation. Three vertices read them instead of every pixel.
+const finalVertex=`#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2D;
+uniform sampler2D uColor,uDepth,uAdapt;
+uniform vec4 uSunScreen;
+uniform float uUseAdapt;
+uniform vec2 uAdaptBand;
+${decode}
+float luminance(vec3 c){return dot(c,vec3(.2126,.7152,.0722));}
+out vec2 uv;
+flat out float vSunSeen,vExposure;
+void main(){
+  vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);
+  uv=p;
+  float seen=0.;
+  if(uSunScreen.w>0.){
+    for(int i=0;i<5;i++){
+      vec2 o=vec2(i==1?1.:i==2?-1.:0.,i==3?1.:i==4?-1.:0.)*.004;
+      vec2 t=uSunScreen.xy+o;
+      bool inside=t.x>0.&&t.x<1.&&t.y>0.&&t.y<1.;
+      float bright=inside?luminance(sceneSample(uColor,t).rgb):0.;
+      seen+=inside&&textureLod(uDepth,t,0.).r>=1.?.2*smoothstep(25.,140.,bright):0.;
+    }
+  }
+  vSunSeen=seen;
+  // Partial adaptation toward the band: dark tunnels open up and a view full of sun closes down,
+  // while ordinary streets keep the graded look.
+  float average=max(uUseAdapt>.5?textureLod(uAdapt,vec2(.5),0.).r:uAdaptBand.x,1e-4);
+  vExposure=clamp(pow(clamp(average,uAdaptBand.x,uAdaptBand.y)/average,.6),.6,2.);
+  gl_Position=vec4(p*2.-1.,0.,1.);
+}`;
 
-export function createPost(gl,{floatColor}){
+// Center-weighted log-average luminance of the frame, eased toward over time like an eye or camera.
+const adaptFragment=`${header}
+uniform sampler2D uColor,uPrevious;
+uniform vec2 uRate;
+uniform float uReset,uJitter;
+void main(){
+  float sum=0.,weights=0.;
+  for(int y=0;y<8;y++)for(int x=0;x<8;x++){
+    vec2 t=(vec2(x,y)+.5+(hash(vec2(x,y)+uJitter)-.5)*.8)/8.;
+    vec2 c=t-.5;
+    float w=1.-.6*smoothstep(0.,.5,dot(c,c)*2.);
+    sum+=log(max(luminance(textureLod(uColor,t,0.).rgb),1e-4))*w;
+    weights+=w;
+  }
+  float measured=exp(sum/weights);
+  float previous=textureLod(uPrevious,vec2(.5),0.).r;
+  // A brighter scene is met quickly, a darker one slowly, as with eyes leaving or entering a tunnel.
+  float rate=measured>previous?uRate.x:uRate.y;
+  float adapted=uReset>.5||!(previous>0.)?measured:exp(mix(log(previous),log(measured),rate));
+  frag=vec4(adapted,0.,0.,1.);
+}`;
+
+// compileProgram comes from gl-program.js: programs start compiling here and are resolved on first
+// use, or earlier by the renderer, so the driver can build them alongside the scene shaders.
+export function createPost(gl,{floatColor,compileProgram}){
   const programs={
-    ssao:compile(gl,fullscreen,ssaoFragment,['Depth','Texel','Projection','Frame','Radius','Strength']),
-    aoBlur:compile(gl,fullscreen,aoBlurFragment,['AO','Depth','Texel','Projection']),
-    resolve:compile(gl,fullscreen,resolveFragment,['Color','Depth','History','AO','Reproject','Texel','Reset','UseAO','UseHistory','Encoded']),
-    down:compile(gl,fullscreen,downsampleFragment,['Source','Texel','Prefilter']),
-    up:compile(gl,fullscreen,upsampleFragment,['Source','Texel','Weight']),
-    final:compile(gl,fullscreen,finalFragment,['Color','Bloom','Depth','Texel','BloomStrength','Time','Sharpen','FXAA',
-      'Vignette','HasBloom','SunScreen','SunTint','Encoded'])
+    ssao:compileProgram(gl,fullscreen,ssaoFragment),
+    aoBlur:compileProgram(gl,fullscreen,aoBlurFragment),
+    resolve:compileProgram(gl,fullscreen,resolveFragment),
+    down:compileProgram(gl,fullscreen,downsampleFragment),
+    up:compileProgram(gl,fullscreen,upsampleFragment),
+    final:compileProgram(gl,finalVertex,finalFragment),
+    adapt:compileProgram(gl,fullscreen,adaptFragment)
   };
   const vao=gl.createVertexArray();
+  // Eye adaptation needs a float target for the running average; 8-bit output keeps a fixed exposure.
+  // The targets are made on first use: a completeness check would wait for the shader compiles.
+  let adaptation=null;
+  const makeAdaptation=()=>floatColor?[0,1].map(()=>{
+    const texture=gl.createTexture();
+    gl.bindTexture(gl.TEXTURE_2D,texture);
+    gl.texStorage2D(gl.TEXTURE_2D,1,gl.R16F,1,1);
+    for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST]])gl.texParameteri(gl.TEXTURE_2D,k,v);
+    const framebuffer=gl.createFramebuffer();
+    gl.bindFramebuffer(gl.FRAMEBUFFER,framebuffer);
+    gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,texture,0);
+    const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+    gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    return ok?{texture,framebuffer}:null;
+  }):[];
+  let adaptReady=false,adaptIndex=0,adaptValid=false,adaptTime=null;
   const hdr=floatColor?{internal:gl.RGBA16F,format:gl.RGBA,type:gl.HALF_FLOAT}:{internal:gl.RGBA8,format:gl.RGBA,type:gl.UNSIGNED_BYTE};
   const bloomFormat=floatColor?{internal:gl.R11F_G11F_B10F,format:gl.RGB,type:gl.HALF_FLOAT}:hdr;
   let size=[0,0],targets=null,historyIndex=0,historyValid=false;
@@ -451,6 +529,7 @@ export function createPost(gl,{floatColor}){
       }
       gl.disable(gl.BLEND);
     }
+    const adapted=adapt(resolved,o);
     const f=programs.final;
     pass(f,null,o.outputWidth,o.outputHeight);
     gl.uniform1i(f.u.Color,bind(0,resolved));
@@ -466,15 +545,44 @@ export function createPost(gl,{floatColor}){
     gl.uniform4fv(f.u.SunScreen,o.sun??[0,0,0,0]);
     gl.uniform3fv(f.u.SunTint,o.sunTint??[1,1,1]);
     gl.uniform1f(f.u.Encoded,floatColor?0:1);
+    gl.uniform1i(f.u.Adapt,bind(3,adapted??resolved));
+    gl.uniform1f(f.u.UseAdapt,adapted?1:0);
+    gl.uniform2fv(f.u.AdaptBand,o.adaptBand??ADAPT_BAND);
+    const blur=o.blur>0&&o.taa&&o.blurReproject;
+    gl.uniform1f(f.u.Blur,blur?o.blur:0);
+    if(blur)gl.uniformMatrix4fv(f.u.BlurReproject,false,o.blurReproject);
     draw();
     gl.depthMask(true);
     gl.bindVertexArray(null);
+  }
+  // Measures the resolved frame into the 1x1 running average used by the final pass.
+  function adapt(source,o){
+    if(!adaptation){adaptation=makeAdaptation();adaptReady=adaptation.length===2&&adaptation.every(Boolean);}
+    if(!adaptReady||o.adapt===false){adaptValid=false;return null;}
+    const step=adaptTime===null?1:Math.min(.5,Math.max(0,o.time-adaptTime));
+    adaptTime=o.time;
+    const write=adaptIndex^1,p=programs.adapt;
+    pass(p,adaptation[write].framebuffer,1,1);
+    gl.uniform1i(p.u.Color,bind(0,source));
+    gl.uniform1i(p.u.Previous,bind(1,adaptation[adaptIndex].texture));
+    gl.uniform2f(p.u.Rate,1-Math.exp(-step*2.6),1-Math.exp(-step*1.1));
+    gl.uniform1f(p.u.Reset,!adaptValid||o.teleport?1:0);
+    gl.uniform1f(p.u.Jitter,(o.frame%61)*1.37);
+    draw();
+    adaptIndex=write;adaptValid=true;
+    return adaptation[write].texture;
   }
   return {
     resize,run,
     get scene(){return targets.scene;},
     get size(){return size;},
-    invalidate(){historyValid=false;},
-    dispose:release
+    invalidate(){historyValid=false;adaptValid=false;},
+    programs:Object.values(programs),
+    dispose(){
+      release();
+      for(const program of Object.values(programs))try{gl.deleteProgram(program.program);}catch{}
+      for(const target of adaptation??[])if(target){gl.deleteTexture(target.texture);gl.deleteFramebuffer(target.framebuffer);}
+      gl.deleteVertexArray(vao);
+    }
   };
 }

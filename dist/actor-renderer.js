@@ -29,8 +29,12 @@ out vec4 vParts;
 ${humanAnimation}
 void main(){
   float yaw=aX.x,scale=aX.y,build=aX.z;
-  float seed=fract(aZ.y*.000173+aStyle.x*.000317+aStyle.y*.000071+aStyle.w*.0617+aZ.z*.000043);
-  Pose P=makePose(aY.x,aY.y,aY.z,aZ.x,uTime,seed);
+  // Style bits 10-15 hold a head turn toward the viewer and bits 16-18 how much of it to use; only the
+  // fixed bits (clothing and body) feed the per-person seed, so it never changes while they look.
+  int bits=int(aStyle.w+.5);
+  float seed=fract(aZ.y*.000173+aStyle.x*.000317+aStyle.y*.000071+float(bits&1023)*.0617+aZ.z*.000043);
+  float look=(float(max((bits>>10)&63,1)-1)/31.-1.)*1.05,lookWeight=float((bits>>16)&7)/7.;
+  Pose P=makePose(aY.x,aY.y,aY.z,aZ.x,uTime,seed,look,lookWeight);
   mat3 RA,RB;vec3 TA,TB;
   boneTransform(int(aExtra.x+.5),P,RA,TA);
   boneTransform(int(aExtra.y+.5),P,RB,TB);
@@ -66,6 +70,7 @@ float spot(vec2 p,vec2 c,vec2 r){vec2 q=(p-c)/r;return 1.-smoothstep(.6,1.,dot(q
 float line(float x,float w){return 1.-smoothstep(w*.5,w,abs(x));}
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
+  beginShading(wPos,n);
   if(dot(n,v)<-.2)n=-n;
   int style=int(vStyle+.5);
   int variant=(style>>8)&3;
@@ -112,8 +117,12 @@ void main(){
       vec2 f=vec2(ax,b.y);
       float socket=spot(f,vec2(.031,1.664),vec2(.024,.016));
       ao*=1.-.38*socket;
-      float eye=spot(f,vec2(.031,1.664),vec2(.0125,.0068))*step(.066,b.z);
+      // Blinks last about 0.13 s, every three to six seconds depending on the person.
+      float period=3.2+vSeed*2.6;
+      float closed=step(1.-.13/period,fract(uTime/period+vSeed*13.));
+      float eye=spot(f,vec2(.031,1.664),vec2(.0125,.0068))*step(.066,b.z)*(1.-closed);
       float iris=spot(f,vec2(.031,1.6645),vec2(.0062,.0062))*eye;
+      albedo*=1.-.35*closed*spot(f,vec2(.031,1.6625),vec2(.013,.0018))*step(.066,b.z);
       albedo=mix(albedo,vec3(.62,.6,.57),eye);
       albedo=mix(albedo,lin(vHair)*.35+vec3(.008,.006,.004),iris);
       rough=mix(rough,.06,eye);
@@ -123,7 +132,7 @@ void main(){
       albedo=mix(albedo,albedo*vec3(.82,.5,.5),lips*.75);
       float cheek=spot(f,vec2(.04,1.625),vec2(.025,.02));
       albedo=mix(albedo,albedo*vec3(1.04,.92,.9),cheek*.4);
-      if(glow)emission+=vec3(1.,.08,.02)*iris*60.;
+      if(glow)emission+=vec3(1.,.08,.02)*iris*60.*(.72+.28*sin(uTime*5.5+vSeed*40.));
     }
     if(b.y>1.55&&b.z<.02&&b.y<1.66)ao*=.9;
   }else if(zone==1){
@@ -227,6 +236,7 @@ flat out vec3 vPaint;
 flat out float vFlags,vPart;
 mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}
 mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}
+mat3 rotZ(float a){float c=cos(a),s=sin(a);return mat3(c,s,0.,-s,c,0.,0.,0.,1.);}
 void main(){
   vec3 p=aPosition,n=aNormal;
   float yaw=aX.x,pitch=aX.y,spin=aX.z,steer=aY.z;
@@ -237,7 +247,13 @@ void main(){
     if(p.z>0.)r=rotY(steer)*r;
     p=c+r*(p-c);n=r*n;
     vBind=c+rotX(spin)*(aPosition-c);
-  }else vBind=aPosition;
+  }else{
+    // The body rides on its springs: it pitches and rolls about the axles while the wheels stay down.
+    vec3 pivot=vec3(0.,${WHEEL.y.toFixed(3)},0.);
+    mat3 r=rotZ(aZ.y)*rotX(-aZ.x);
+    p=pivot+r*(p-pivot);n=r*n;
+    vBind=aPosition;
+  }
   vec3 forward=vec3(sin(yaw),0.,-cos(yaw)),left=-vec3(cos(yaw),0.,sin(yaw));
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward)*rotX(-pitch);
   wPos=aCenter+orient*p;
@@ -275,9 +291,10 @@ vec3 streetReflection(vec3 r,float rough){
 }
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
+  beginShading(wPos,n);
   if(dot(n,v)<-.2)n=-n;
   int part=int(vPart+.5),flags=int(vFlags+.5);
-  bool wreck=(flags&1)!=0;
+  bool wreck=(flags&1)!=0,brake=(flags&2)!=0,reverse=(flags&4)!=0;
   vec3 b=vBind;
   float ax=abs(b.x);
   vec3 paint=lin(vPaint);
@@ -314,6 +331,10 @@ void main(){
     }
     float valance=step(1.98,abs(b.z))*step(b.y,.4);
     albedo=mix(albedo,vec3(.03),valance);coat*=1.-valance;metal*=1.-valance;
+    // Road grime: the sills, bumpers and the paint around the wheels are dulled by dust and spray.
+    float arch=1.-smoothstep(.3,.62,length(vec2(b.y-${WHEEL.y.toFixed(3)},abs(b.z)-${WHEEL.z.toFixed(3)})));
+    float grime=max(1.-smoothstep(.22,.55,b.y),arch*.8)*(.55+.45*noise(b.xz*7.+b.y*4.))*(1.-glass);
+    albedo=mix(albedo,vec3(.075,.068,.06),grime*.38);rough=mix(rough,.78,grime*.6);coat*=1.-grime*.55;
     float head=front*box2(vec2(ax,b.y),vec2(.44,.6),vec2(.82,.73),.008);
     if(head>.5){
       float reflector=smoothstep(.025,.04,length(vec2(fract((ax-.44)/.19)-.5,(b.y-.665)/.065*.5)));
@@ -321,7 +342,11 @@ void main(){
       emission+=vec3(1.,.96,.9)*step(.62,b.y)*step(b.y,.632)*3.;
     }
     float tail=rear*box2(vec2(ax,b.y),vec2(.36,.72),vec2(.84,.86),.008);
-    if(tail>.5){albedo=vec3(.32,.012,.01);metal=0.;rough=.12;coat=1.;emission+=vec3(.9,.02,.01)*.6;}
+    if(tail>.5){
+      albedo=vec3(.32,.012,.01);metal=0.;rough=.12;coat=1.;
+      emission+=vec3(.9,.02,.01)*(brake?9.:.6);
+      if(reverse&&ax<.5){albedo=vec3(.8);emission=vec3(1.,.97,.92)*6.;}
+    }
     float plate=(front+rear)*box2(vec2(ax,b.y),vec2(-1.,.46),vec2(.255,.6),.004);
     if(plate>.5){
       albedo=vec3(.82,.82,.78);metal=0.;rough=.4;coat=.5;
@@ -380,7 +405,7 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     carDepth:compileProgram(gl,carVertex,depthFragment)
   };
   const meshes=new Map(),buckets=new Map();
-  let humans=null,cars=null,ready=false;
+  let humans=null,cars=null,shadowOnly=null,ready=false;
 
   function addMesh(key,{vertices,indices}){
     const buffer=gl.createBuffer(),elements=gl.createBuffer();
@@ -455,18 +480,20 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   // Sorts actors into variant and detail buckets, skips those outside the view and uploads them.
   function prepare(eye,shadow,planes){
     const groups=[];
-    if(humans?.length){
+    // Bodies that only cast shadows (the player's own) join the shadow passes.
+    const people=shadow&&shadowOnly?.length?(humans??[]).concat(shadowOnly):humans;
+    if(people?.length){
       const lists=new Map();
-      for(let i=0;i<humans.length/16;i++){
-        const x=humans[i*16],y=humans[i*16+1],z=humans[i*16+2],scale=humans[i*16+4];
+      for(let i=0;i<people.length/16;i++){
+        const x=people[i*16],y=people[i*16+1],z=people[i*16+2],scale=people[i*16+4];
         if(!visible(planes,x,y+.9*scale,z,1.2*scale))continue;
-        const dx=x-eye[0],dz=z-eye[2],variant=variantOf(humans,i);
+        const dx=x-eye[0],dz=z-eye[2],variant=variantOf(people,i);
         const near=!shadow&&dx*dx+dz*dz<(26*scale)**2*(mobile?.6:1);
         const key='human'+variant+'-'+(near&&meshes.has('human'+variant+'-1')?1:0);
         if(!lists.has(key))lists.set(key,[]);
         lists.get(key).push(i);
       }
-      for(const [key,indices] of lists)groups.push({program:'human',key:(shadow?'s':'')+key,meshKey:key,source:humans,indices});
+      for(const [key,indices] of lists)groups.push({program:'human',key:(shadow?'s':'')+key,meshKey:key,source:people,indices});
     }
     if(cars?.length){
       const near=[],far=[];
@@ -487,7 +514,8 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   }
   return {
     get ready(){return ready;},
-    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;},
+    programs:Object.values(programs),
+    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;shadowOnly=walkers?.shadowHumans??null;},
     draw({vp,eye,time,send,planes}){
       if(!ready)return;
       const groups=prepare(eye,false,planes);
@@ -523,7 +551,7 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
       disposed=true;worker?.terminate();worker=null;
       for(const entry of buckets.values()){gl.deleteVertexArray(entry.vao);gl.deleteBuffer(entry.buffer);}
       for(const mesh of meshes.values()){gl.deleteBuffer(mesh.buffer);gl.deleteBuffer(mesh.elements);}
-      for(const program of Object.values(programs))gl.deleteProgram(program.program);
+      for(const program of Object.values(programs))try{gl.deleteProgram(program.program);}catch{}
       buckets.clear();meshes.clear();ready=false;
     }
   };

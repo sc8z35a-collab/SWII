@@ -146,7 +146,8 @@ mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);
 mat3 rotZ(float a){float c=cos(a),s=sin(a);return mat3(c,s,0.,-s,c,0.,0.,0.,1.);}
 float wrapAngle(float a){return mod(a+3.14159265,6.2831853)-3.14159265;}
 struct Pose{float hip[2];float knee[2];float ankle[2];float arm[2];float elbow[2];float twist,lean,bob,sway,breath,reach,headTurn;};
-Pose makePose(float phase,float gait,float stride,float pose,float time,float seed){
+// look: head turn toward something (radians, positive to the body's left) blended in by lookWeight.
+Pose makePose(float phase,float gait,float stride,float pose,float time,float seed,float look,float lookWeight){
   Pose P;
   float run=smoothstep(1.7,2.5,stride)*gait;
   float amp=asin(clamp(stride/(4.*.845),0.,.82))*gait;
@@ -166,7 +167,7 @@ Pose makePose(float phase,float gait,float stride,float pose,float time,float se
   P.sway=-.018*gait*cos(phase)*(1.-run*.6)+(1.-gait)*.01*sin(time*.45+seed*6.);
   P.breath=sin(time*1.7+seed*9.)*(1.-gait*.6);
   P.reach=pose;
-  P.headTurn=(1.-gait)*.35*sin(time*.23+seed*17.)*smoothstep(.2,.9,sin(time*.11+seed*5.));
+  P.headTurn=mix((1.-gait)*.35*sin(time*.23+seed*17.)*smoothstep(.2,.9,sin(time*.11+seed*5.)),look,lookWeight);
   return P;
 }
 void rotateAbout(inout mat3 R,inout vec3 T,vec3 pivot,mat3 local){
