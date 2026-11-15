@@ -69,7 +69,7 @@ function channel(base,cookie){
   return {ws,next,send(value){ws.send(typeof value==='string'?value:JSON.stringify(value));}};
 }
 
-test('Workers runtime owns movement, book collection, parked cars and save recovery',{timeout:45000},async ()=>{
+test('Workers runtime owns movement, book collection, shooting, parked cars and save recovery',{timeout:45000},async ()=>{
   const dir=await mkdtemp(join(tmpdir(),'atlantis-worker-test-'));
   let worker,game,reopen;
   try{
@@ -114,7 +114,8 @@ const config :Workerd.Config = (
     assert.equal(ready.started,false);
     assert.equal(ready.mission.phase,'books');
     assert.deepEqual(ready.mission.picked,[]);
-    assert.equal(ready.mission.enemies.length,2);
+    assert.equal(ready.mission.enemies.length,13);
+    assert.deepEqual([ready.mission.gun.mag,ready.mission.gun.reserve],[120,130]);
     assert.equal(ready.player.city,'tokyo');
     game.send('ping');assert.equal(await game.next(x=>x==='pong'),'pong');
     for(const [i,kind] of ['discover','waypoint','travel','vehicle'].entries()){
@@ -139,12 +140,23 @@ const config :Workerd.Config = (
     const idle=await game.next(x=>x.op==='state'&&x.seq===13);
     assert.ok(idle.mission.elapsed>saved.mission.elapsed);
     assert.equal(idle.player.z,saved.player.z);
+    // The trigger is resolved on the server: three rounds leave the magazine at once.
+    game.send({op:'fire',yaw:9,pitch:0});
+    assert.equal((await game.next(x=>x.op==='error')).error,'packet');
+    game.send({op:'fire',yaw:0,pitch:.4});
+    const fired=await game.next(x=>x.op==='state'&&x.mission.gun.shots===1);
+    assert.equal(fired.mission.gun.mag,117);
+    assert.equal(fired.mission.bullets.length,3);
+    game.send({op:'reload'});
+    assert.ok((await game.next(x=>x.op==='state'&&x.mission.gun.reloading>0)).mission.gun.reloading<=1700);
     game.ws.close(1000);await delay(120);
     await worker.stop();worker=await runtime(dir);base=worker.base;
     reopen=channel(base,cookie);
     const resumed=await reopen.next(x=>x.op==='ready');
     assert.equal(resumed.player.z,saved.player.z);
     assert.deepEqual(resumed.mission.picked,[0]);
+    assert.equal(resumed.mission.gun.mag+resumed.mission.gun.reserve,247);
+    assert.equal(resumed.mission.enemies.length,13);
     assert.equal(resumed.started,true);
     assert.ok(resumed.mission.elapsed>=idle.mission.elapsed);
     const visitor=await fetch(base+'/api/session',{method:'POST',headers:{Origin:base}});

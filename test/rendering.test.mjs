@@ -8,24 +8,31 @@ import {packedColor,rasterizer} from '../dist/software-raster.js';
 import {blendLighting,cities,lighting} from '../dist/world.js';
 import {glassOrder,meshBatch} from '../dist/mesh-batches.js';
 import {shadowProjection} from '../dist/engine.js';
-import {appearanceMaterial,facadeAppearance} from '../dist/facade-look.js';
+import {DAMAGE_CLASSES,appearanceMaterial,damageLevels,damageRecipe,facadeAppearance,facadeDamage} from '../dist/facade-look.js';
 import {buildingLook} from '../tools/building-looks.mjs';
 import {entryPortal,recessedWindows} from '../tools/facade-details.mjs';
 
 test('building appearances survive Float32 serialization and preserve material and distance flags',()=>{
   const seen=new Set();
-  for(let era=0;era<6;era++)for(let wear=0;wear<8;wear++)for(let window=0;window<8;window++){
-    const base=Math.fround(appearanceMaterial(13,era,wear,window));
-    const detailed=Math.fround(appearanceMaterial(18.25,era,wear,window));
-    assert.equal(Math.floor(base),13);
-    assert.equal(Math.floor(detailed),18);
-    assert.ok(base-13<.1&&detailed-18>.1);
-    const decoded=facadeAppearance(detailed);
-    assert.equal(facadeAppearance(base),decoded);
-    assert.deepEqual([decoded.era,decoded.wear,decoded.window],[era,wear,window]);
-    seen.add(base);
+  const recipes=new Set();
+  for(let damage=0;damage<DAMAGE_CLASSES;damage++)for(let era=0;era<6;era++)for(let wear=0;wear<8;wear++)for(let window=0;window<8;window++){
+    // 181 is a facade material on the lifted tower, the largest integer part in use.
+    for(const material of [13,181]){
+      const base=Math.fround(appearanceMaterial(material,era,wear,window,damage));
+      const detailed=Math.fround(appearanceMaterial(material+.25,era,wear,window,damage));
+      assert.equal(Math.floor(base),material);
+      assert.equal(Math.floor(detailed),material);
+      assert.ok(base-material<.2499&&detailed-material>=.2499);
+      const decoded=facadeAppearance(detailed);
+      assert.equal(facadeAppearance(base),decoded);
+      assert.deepEqual([decoded.era,decoded.wear,decoded.window],[era,wear,window]);
+      assert.equal(facadeDamage(base),damage);assert.equal(facadeDamage(detailed),damage);
+      if(material===13)seen.add(base);
+    }
+    recipes.add(damageLevels(damageRecipe(damage*384+era*64+wear*8+window)).join(''));
   }
-  assert.equal(seen.size,384);
+  assert.equal(seen.size,384*DAMAGE_CLASSES);
+  assert.ok(recipes.size>12000);
   assert.equal(facadeAppearance(13.25),null);
 });
 
