@@ -1,10 +1,15 @@
-import {appearanceMaterial,eraProfiles,windowProfiles} from '../dist/facade-look.js';
+import {APPEARANCE_CODES,DAMAGE_CLASSES,appearanceMaterial,damageKinds,damageLevels,damageRecipe,eraProfiles,windowProfiles} from '../dist/facade-look.js';
 
 const pigments=[
   [0,0,0],[13,9,3],[-17,-8,-5],[9,-6,-12],[-14,4,9],[10,13,7],[-9,-3,8],[17,3,-8],
   [-19,-12,-18],[21,18,12],[2,-14,-17],[-5,9,11],[-17,1,-6],[8,1,14],[19,7,-4],[-7,-16,-8],
   [-13,-11,1],[7,15,17],[22,13,-6],[-18,-6,2],[4,8,-11],[-9,1,16],[14,2,10],[-7,11,3],
+  [6,-3,-9],[-11,5,-2],[16,10,1],[-4,-9,-14],[11,-2,6],[-15,-4,12],[3,12,-5],[-8,7,-13],
+  [20,5,3],[-21,-15,-9],[9,17,13],[-2,-6,5],[13,-9,-3],[-10,13,9],[5,3,-17],[-16,-2,-11],
+  [18,14,8],[-6,-12,3],[1,6,10],[-19,-9,-4],[12,8,-10],[-3,15,6],[15,-5,-13],[-12,-1,14],
 ];
+export const lookCounts={eras:6,pigments:pigments.length,wear:8,windows:8,damageClasses:DAMAGE_CLASSES,
+  damageKinds:damageKinds.length,appearanceCodes:APPEARANCE_CODES};
 const years=[[1880,1909],[1910,1939],[1940,1964],[1965,1984],[1985,2004],[2005,2026]];
 const frames=['7e766a','857666','685e51','63716e','677479','526c78'];
 const climate={tokyo:1,paris:3,newyork:5,cairo:7,sydney:9,rio:11};
@@ -42,6 +47,9 @@ export function buildingLook(city,x,z,height,material,base){
   const aging=era<2&&weather<3?weather+3:era===5&&weather>5?weather-2:weather;
   const wear=renovation.renewed?Math.round(aging*.49):aging;
   const window=(hash>>>22)%8;
+  // Which of the sixteen kinds of damage a building shows, and how strongly, follows from this class.
+  const damage=(Math.imul(hash^0x9e3779b9,0x85ebca6b)>>>11)%DAMAGE_CLASSES;
+  const code=damage*384+era*64+wear*8+window;
   const [from,to]=years[era],year=from+(hash>>>16)%(to-from+1);
   const tone=pigments[palette].map((shift,i)=>{
     const value=parseInt(base.slice(i*2,i*2+2),16);
@@ -49,7 +57,9 @@ export function buildingLook(city,x,z,height,material,base){
     const blend=value+(refit-value)*renovation.weight;
     return Math.max(38,Math.min(235,Math.round(blend+(163-blend)*wear*.017+shift))).toString(16).padStart(2,'0');
   }).join('');
-  return {key:[era,palette,wear,window,renovation.id].join('/'),year,era,wear,window,tone,frame:renovation.frame??frames[era],renovation,
+  return {key:[era,palette,wear,window,renovation.id,damage].join('/'),year,era,wear,window,damage,tone,frame:renovation.frame??frames[era],renovation,
     eraProfile:eraProfiles[era],windowProfile:windowProfiles[window],
-    surface:mat=>appearanceMaterial(mat===material?(renovation.material??mat):mat,era,wear,window)};
+    // The recipe the shader derives from this building's code: a level from 0 to 3 for every kind of damage.
+    recipe:damageLevels(damageRecipe(code)),
+    surface:mat=>appearanceMaterial(mat===material?(renovation.material??mat):mat,era,wear,window,damage)};
 }

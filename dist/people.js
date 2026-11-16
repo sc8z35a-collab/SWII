@@ -85,14 +85,14 @@ function stepAside(x,z,eye,radius=1.5){
   return [x+dx*push,z+dz*push];
 }
 // focus: where the player actually is ({x,y,z,radius}); people look at it and keep clear of it.
-function detailedPeople(people,seconds,eye,out,groundAt,focus){
+function detailedPeople(people,seconds,eye,out,groundAt,focus,range=155){
   const target=focus?[focus.x,focus.y??eye[1],focus.z]:eye,clearance=focus?.radius??1.5;
   const humans=[];
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;
-    if(eye[0]<west-155||eye[0]>east+155||eye[2]<north-155||eye[2]>south+155)continue;
+    if(eye[0]<west-range||eye[0]>east+range||eye[2]<north-range||eye[2]>south+range)continue;
     const pose=pedestrianPose(person,seconds),[x,y,z]=pose.position;
-    if(Math.hypot(x-eye[0],z-eye[2])>155)continue;
+    if(Math.hypot(x-eye[0],z-eye[2])>range)continue;
     if(groundAt&&!Number.isFinite(groundAt(x,z)))continue;
     const [skin,hair,shirt,pants,accent,height,build]=profiles[person.id%profiles.length];
     const h=hashOf(person.id);
@@ -117,14 +117,14 @@ function detailedPeople(people,seconds,eye,out,groundAt,focus){
   out.humans=humans;
   return out;
 }
-export function peopleMeshes(people,seconds,eye,groundAt,detailed=false,focus=null){
-  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true},groundAt,focus);
+export function peopleMeshes(people,seconds,eye,groundAt,detailed=false,focus=null,range=155){
+  if(detailed)return detailedPeople(people,seconds,eye,{detailed:true},groundAt,focus,range);
   const out={box:[],chamfer:[],tube:[],ball:[]};
   for(const person of people){
     const [west,north,east,south]=prepare(person.path).bounds;
-    if(eye[0]<west-155||eye[0]>east+155||eye[2]<north-155||eye[2]>south+155)continue;
+    if(eye[0]<west-range||eye[0]>east+range||eye[2]<north-range||eye[2]>south+range)continue;
     const pose=pedestrianPose(person,seconds),[x,y,z]=pose.position;
-    if(Math.hypot(x-eye[0],z-eye[2])>155)continue;
+    if(Math.hypot(x-eye[0],z-eye[2])>range)continue;
     const ground=groundAt?.(x,z);
     if(groundAt&&!Number.isFinite(ground))continue;
     const [skin,hair,shirt,pants,accent,height,build]=profiles[person.id%profiles.length];

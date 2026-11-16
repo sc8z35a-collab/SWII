@@ -44,18 +44,83 @@ const streets={
     ['terraced-concrete',9,30,'setback','terrace',12],['coastal-hotel',15,38,'stack','pavilion',12]
   ]
 };
+// Sixty further types: ten new massings and eleven new roofs, eight per city and twelve modern ones.
+const additions={
+  tokyo:[
+    ['pencil-building',12,40,'podium','billboard',19],['capsule-tower',14,44,'cluster','mast',12],
+    ['shotengai-arcade',5,14,'ell','barrel',5],['temple-hall',5,13,'plain','pagoda',5],
+    ['karaoke-block',10,30,'turret','billboard',21],['manshon-slab',12,44,'fins','solar',12],
+    ['sento-bathhouse',5,12,'wing','pagoda',5],['zakkyo-stack',9,32,'ziggurat','tank',19]
+  ],
+  paris:[
+    ['haussmann-rotunda',10,28,'drum','dome',8],['passage-gallery',6,18,'gate','barrel',8],
+    ['beaux-arts-pavilion',9,26,'turret','dome',20],['atelier-verriere',6,20,'ell','solar',8],
+    ['belle-epoque-store',12,30,'podium','dome',20],['left-bank-studio',8,24,'cluster','garden',8],
+    ['institut-arcade',9,27,'cantilever','garden',20],['quai-warehouse',7,22,'twin','barrel',13]
+  ],
+  newyork:[
+    ['art-deco-setback',20,90,'ziggurat','crown',20],['cast-iron-loft',8,34,'fins','tank',13],
+    ['tenement-twin',8,30,'twin','tank',13],['corner-bank',10,36,'drum','dome',20],
+    ['meatpacking-shed',5,18,'ell','barrel',13],['armory-turret',9,32,'turret','spire',13],
+    ['highline-cantilever',14,60,'cantilever','garden',19],['midtown-podium',22,90,'podium','helipad',19]
+  ],
+  cairo:[
+    ['mosque-quarter-hall',5,16,'drum','dome',17],['minaret-house',6,20,'turret','spire',17],
+    ['caravanserai',4,13,'gate','parapet',17],['mashrabiya-block',6,22,'fins','garden',17],
+    ['nile-villa',5,16,'ell','dome',20],['khan-arcade',5,15,'twin','barrel',17],
+    ['citadel-step',7,24,'ziggurat','parapet',20],['bazaar-cluster',4,14,'cluster','solar',17]
+  ],
+  sydney:[
+    ['federation-turret',6,22,'turret','spire',13],['wharf-shed',5,16,'ell','barrel',5],
+    ['surf-club',5,14,'cantilever','solar',5],['harbour-twin',14,50,'twin','helipad',19],
+    ['terrace-ziggurat',10,38,'ziggurat','garden',12],['rotunda-pavilion',6,20,'drum','dome',8],
+    ['quay-podium',16,52,'podium','mast',19],['sandstone-gatehouse',7,24,'gate','crown',8]
+  ],
+  rio:[
+    ['favela-stack',4,14,'cluster','tank',13],['colonial-sobrado',5,16,'turret','dome',5],
+    ['modernist-pilotis',10,34,'cantilever','garden',12],['samba-hall',5,15,'ell','barrel',5],
+    ['copacabana-twin',12,38,'twin','solar',12],['art-deco-cinema',8,24,'ziggurat','crown',5],
+    ['hillside-gate',6,20,'gate','garden',13],['carioca-drum',8,26,'drum','mast',12]
+  ]
+};
+for(const [city,list] of Object.entries(additions))streets[city].push(...list);
 const modernStreets=[
   ['glass-office',12,103,'plain','plant',19],['beveled-workplace',12,103,'chamfer','plant',19],
   ['setback-commercial',12,103,'setback','terrace',19],['civic-office',12,103,'wing','plant',21],
   ['terraced-residence',12,103,'stack','terrace',19],['shaded-business-center',12,103,'bay','plant',21],
-  ['open-court-office',12,103,'court','parapet',19],['slim-louvered-office',12,103,'setback','plant',21]
+  ['open-court-office',12,103,'court','parapet',19],['slim-louvered-office',12,103,'setback','plant',21],
+  ['twin-core-office',12,103,'twin','helipad',19],['podium-tower',12,103,'podium','mast',19],
+  ['stepped-ziggurat-hq',12,103,'ziggurat','garden',21],['cylinder-office',12,103,'drum','mast',19],
+  ['cantilever-studio',12,103,'cantilever','solar',21],['finned-lab',12,103,'fins','solar',21],
+  ['gateway-office',12,103,'gate','helipad',19],['clustered-campus',12,103,'cluster','garden',19],
+  ['corner-turret-bank',12,103,'turret','crown',21],['l-wing-institute',12,103,'ell','solar',19],
+  ['sky-garden-tower',12,103,'podium','garden',21],['media-tower',12,103,'cluster','billboard',19]
 ];
+export const streetStyleCount=Object.values(streets).reduce((n,list)=>n+list.length,0)+modernStreets.length;
+export const addedStreetStyles=Object.values(additions).reduce((n,list)=>n+list.length,0)+12;
 export function streetStyle(id,h,x,z,modern=false){
   const hash=(Math.imul(Math.round(x*100),1597334677)^Math.imul(Math.round(z*100),3812015801))>>>0;
   const catalog=modern?modernStreets:streets[id],choices=catalog.filter(([,min,max])=>min<=h&&h<=max);
   const [name,,,mass,roof,material]=(choices.length?choices:catalog)[hash%(choices.length||catalog.length)];
   return {name,mass,roof,material,variation:(hash%127)/127};
 }
+
+// Twenty further towers use the ten newer forms, twice each, to thicken the skylines.
+// A lot that cannot be fitted is left out instead of stopping the build.
+export const denseTowerPlans={
+  tokyo:[
+    [150,-110,300,32,28,'helix'],[-150,55,262,31,27,'pagoda-tower'],[175,120,220,29,25,'bundle'],
+    [-140,-95,190,28,24,'lens'],[20,200,170,27,24,'crystal']
+  ],
+  newyork:[
+    [165,-55,336,33,29,'campanile'],[-155,95,292,32,28,'bundle'],[70,60,250,30,26,'monolith'],
+    [-30,70,214,29,25,'helix'],[150,130,178,28,24,'tripod']
+  ],
+  paris:[[120,150,170,29,25,'lens'],[230,10,140,27,23,'crystal']],
+  cairo:[[205,95,214,33,28,'campanile'],[95,-60,164,28,24,'lighthouse'],[215,-20,150,29,24,'cascade']],
+  sydney:[[-20,130,236,31,27,'lighthouse'],[140,40,200,29,25,'tripod'],[40,170,160,28,24,'pagoda-tower']],
+  rio:[[-100,60,130,27,23,'cascade'],[-15,-60,104,25,22,'monolith']]
+};
 
 // Target position in the district, height, street width/depth of the podium, and structure.
 // Lots are fitted to actual roads and validated against slopes, water and existing footprints.

@@ -31,8 +31,24 @@ const forms={
   veranda:[[0,.58,.83,.81,0,0,'chamfer'],[.58,.86,.73,.65,0,-.08],[.86,1,.61,.60,0,-.08,'chamfer']],
   balconies:[[0,.87,.81,.86,0,0],[.87,1,.67,.75,0,-.05,'chamfer']],
   'brise-soleil':[[0,.77,.83,.83,0,0],[.77,1,.67,.64,0,0,'chamfer']],
-  portico:[[0,.71,.85,.82,0,0],[.71,.87,.74,.72,0,0,'chamfer'],[.87,1,.70,.69,0,0,'roof']]
+  portico:[[0,.71,.85,.82,0,0],[.71,.87,.74,.72,0,0,'chamfer'],[.87,1,.70,.69,0,0,'roof']],
+  // Ten further high-rise types.
+  helix:[[0,.2,.86,.84,0,0,'chamfer'],[.2,.4,.84,.82,0,0,'chamfer',.16],[.4,.6,.80,.78,0,0,'chamfer',.32],
+    [.6,.8,.76,.74,0,0,'chamfer',.48],[.8,.96,.70,.68,0,0,'chamfer',.64],[.96,1,.4,.4,0,0,'cone']],
+  campanile:[[0,.55,.90,.86,0,0],[.55,.8,.70,.68,0,0],[.8,.92,.5,.5,0,0,'chamfer'],[.92,1,.5,.5,0,0,'pyramid',.785]],
+  tripod:[[0,.9,.3,.3,-.28,-.2],[0,.9,.3,.3,.28,-.2],[0,.9,.3,.3,0,.26],[.78,.94,.92,.88,0,0,'chamfer'],
+    [.94,1,.6,.6,0,0,'taper']],
+  cascade:[[0,.2,.92,.86,0,0],[.2,.4,.78,.82,-.07,0],[.4,.6,.64,.78,-.14,0],[.6,.8,.5,.74,-.21,0],[.8,1,.36,.7,-.28,0]],
+  lens:[[0,.08,.90,.84,0,0,'chamfer'],[.08,.9,.62,.9,0,0,'tube'],[.9,1,.5,.74,0,0,'taper']],
+  'pagoda-tower':[[0,.22,.84,.82,0,0],[.2,.24,1,.98,0,0,'taper'],[.24,.46,.76,.74,0,0],[.44,.48,.92,.9,0,0,'taper'],
+    [.48,.7,.68,.66,0,0],[.68,.72,.84,.82,0,0,'taper'],[.72,.9,.6,.58,0,0],[.9,1,.72,.7,0,0,'pyramid',.785]],
+  monolith:[[0,.97,.94,.42,0,0],[0,.62,.3,.6,-.3,.06],[.97,1,.9,.38,0,0]],
+  crystal:[[0,.3,.84,.84,0,0,'chamfer',.39],[.3,.82,.72,.72,0,0,'chamfer'],[.82,1,.72,.72,0,0,'pyramid',.39]],
+  bundle:[[0,.55,.46,.46,-.23,-.23],[0,.7,.46,.46,.23,-.23],[0,.86,.46,.46,-.23,.23],[0,1,.46,.46,.23,.23]],
+  lighthouse:[[0,.1,.90,.86,0,0,'chamfer'],[.1,.8,.6,.6,0,0,'tube'],[.8,.86,.78,.78,0,0,'tube'],
+    [.86,.95,.44,.44,0,0,'tube'],[.95,1,.5,.5,0,0,'cone']]
 };
+export const towerForms=Object.keys(forms);
 const tones={
   tokyo:['819ba6','c4c2b1','374955','5e5950','554239','c6c9bb'],
   newyork:['829aa9','c0a98e','3b4850','66564b','745847','d3c6ab'],
@@ -41,8 +57,8 @@ const tones={
   sydney:['7ca4ac','cbc8b9','415660','546b68','795b49','cbd3cc'],
   rio:['84a9a8','dad0bc','4c615f','8b806d','875c45','ded0b6']
 };
-const masonry=new Set(['spire','stepped','beveled','obelisk','paired','screen','portico']);
-const ribs=new Set(['fluted','needle','ribbon','blade','loggia','veranda','brise-soleil','balconies','skybridge']);
+const masonry=new Set(['spire','stepped','beveled','obelisk','paired','screen','portico','campanile','pagoda-tower','lighthouse']);
+const ribs=new Set(['fluted','needle','ribbon','blade','loggia','veranda','brise-soleil','balconies','skybridge','monolith','tripod','bundle']);
 const detail=.25;
 
 export function buildTower(plan,geometry){

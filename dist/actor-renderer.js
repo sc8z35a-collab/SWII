@@ -1,6 +1,7 @@
 import {depthFragment,glslLighting} from './world-shader.js';
 import {humanAnimation} from './human-model.js';
 import {WHEEL} from './car-model.js';
+import {JAW_HINGE} from './face-model.js';
 
 // Detailed animated actors: skinned people and cars with their own meshes and shading.
 // Instance layout (16 floats) is documented in people.js (humans) and moving-models.js (cars).
@@ -41,6 +42,11 @@ void main(){
   vec3 p=mix(RA*aPosition+TA,RB*aPosition+TB,aExtra.z);
   vec3 n=mix(RA*aNormal,RB*aNormal,aExtra.z);
   p.x*=build;n.x/=build;
+  if((int(aStyle.w+.5)&64)!=0){
+    // Knocked out: the body lies on its back.
+    mat3 lying=rotX(-1.5);
+    p=lying*p+vec3(0.,.115,0.);n=lying*n;
+  }
   vec3 forward=vec3(sin(yaw),0.,-cos(yaw)),left=-vec3(cos(yaw),0.,sin(yaw));
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward);
   wPos=aCenter+orient*p*scale;
@@ -234,7 +240,7 @@ void main(){
     color+=uSunColor*shadow*aniso*NoL;
   }
   color+=emission;
-  color=aerial(color,wPos,0.);
+  color=aerial(color,wPos,viewEdge(wPos));
   frag=encodeOutput(color,share);
 }`;
 
@@ -414,19 +420,215 @@ void main(){
     }
   }
   color+=emission;
-  color=aerial(color,wPos,0.);
+  color=aerial(color,wPos,viewEdge(wPos));
   frag=encodeOutput(color,share);
 }`.replace('vec3 lin(vec3 c)','float line(float x,float w){return 1.-smoothstep(w*.5,w,abs(x));}\nvec3 lin(vec3 c)');
+
+// The large faces. Instance layout: position of the middle of the face, then yaw, size, kind,
+// then alertness, stun, jaw opening, then pitch, roll, a seed, and the share of hits taken.
+const faceVertex=`#version 300 es
+precision highp float;
+precision highp int;
+${instanceInputs}
+out vec3 wPos,wNormal,vBind;
+out vec4 vData;
+flat out vec4 vState;
+flat out float vHurt;
+mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}
+mat3 rotZ(float a){float c=cos(a),s=sin(a);return mat3(c,s,0.,-s,c,0.,0.,0.,1.);}
+void main(){
+  float yaw=aX.x,size=aX.y,seed=aZ.z,live=1.-aY.y;
+  vec3 hinge=vec3(${JAW_HINGE.map(n=>n.toFixed(3)).join(',')});
+  mat3 jaw=rotX(aY.z*aExtra.y*.62);
+  vec3 p=hinge+jaw*(aPosition-hinge),n=jaw*aNormal;
+  float bob=sin(uTime*.9+seed*6.283)*.035*live;
+  mat3 tilt=rotX(aZ.x+sin(uTime*.61+seed*4.)*.045*live)*rotZ(aZ.y+sin(uTime*.47+seed*9.)*.055*live);
+  vec3 forward=vec3(sin(yaw),0.,-cos(yaw)),left=-vec3(cos(yaw),0.,sin(yaw));
+  mat3 orient=mat3(left,vec3(0.,1.,0.),forward)*tilt;
+  wPos=aCenter+vec3(0.,bob*size,0.)+orient*p*size;
+  wNormal=normalize(orient*n);
+  vBind=aPosition;vData=aExtra;
+  vState=vec4(aX.z,aY.x,aY.y,seed);vHurt=aStyle.x;
+  gl_Position=uVP*vec4(wPos,1.);
+}`;
+
+const faceFragment=`#version 300 es
+precision highp float;
+precision highp int;
+precision highp sampler2DShadow;
+in vec3 wPos,wNormal,vBind;
+in vec4 vData;
+flat in vec4 vState;
+flat in float vHurt;
+layout(location=0)out vec4 frag;
+${glslLighting}
+float spot(vec2 p,vec2 c,vec2 r){vec2 q=(p-c)/r;return 1.-smoothstep(.6,1.,dot(q,q));}
+float fbm3(vec3 p){
+  float sum=0.,amp=.5;
+  for(int i=0;i<4;i++){sum+=amp*noise3(p);p=p*2.03+vec3(1.7,9.2,4.1);amp*=.5;}
+  return sum;
+}
+// Thin lines along the level sets of a noise field: cracks, sutures and craquelure.
+float vein(vec3 p,float width){return 1.-smoothstep(0.,width,abs(noise3(p)-.5));}
+// Bump mapping for a height known only per pixel.
+vec3 emboss(vec3 n,float height,float strength){
+  vec3 dpx=dFdx(wPos),dpy=dFdy(wPos);
+  float dhx=dFdx(height),dhy=dFdy(height);
+  vec3 r1=cross(dpy,n),r2=cross(n,dpx);
+  float det=dot(dpx,r1);
+  vec3 grad=sign(det)*(dhx*r1+dhy*r2);
+  return normalize(abs(det)*n-strength*grad);
+}
+void main(){
+  vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
+  beginShading(wPos,n);
+  if(dot(n,v)<-.25)n=-n;
+  int kind=int(vState.x+.5),part=int(vData.x+.5);
+  float alert=vState.y,stun=vState.z,seed=vState.w,rim=vData.w,hurt=vHurt;
+  vec3 b=vBind;
+  float ax=abs(b.x);
+  float footprint=length(fwidth(wPos));
+  float fine=1.-smoothstep(.01,.08,footprint);
+  float flicker=.82+.18*sin(uTime*11.+seed*40.)*sin(uTime*7.3+seed*13.);
+  vec3 albedo=vec3(.5),emission=vec3(0.);
+  float rough=.6,metal=0.,f0=.04,coat=0.,translucency=0.,sheen=0.,height=0.,ao=mix(.3,1.,vData.z);
+  // Wounds: glowing fissures that widen with every hit.
+  float fissure=vein(b*4.3+seed*5.,.004+hurt*.024)*smoothstep(.0,.15,hurt+.05);
+  float hairline=vein(b*17.+seed*3.,.011)*fine;
+  if(part==1){
+    albedo=vec3(.012,.01,.011);rough=.9;ao*=.5;
+    if(kind==1){
+      // Embers deep inside the eye sockets.
+      vec3 socket=vec3(.152,.065,.2);
+      float glow=exp(-dot(vec3(ax,b.y,b.z)-socket,vec3(ax,b.y,b.z)-socket)*70.);
+      emission+=vec3(1.,.27,.04)*glow*(1.2+alert*9.)*flicker;
+      albedo=mix(albedo,vec3(.09,.05,.03),step(b.y,-.2));
+    }else if(kind==2){
+      albedo=mix(albedo,vec3(.16,.012,.014),step(b.y,-.12));
+      emission+=vec3(1.,.12,.03)*step(b.y,-.12)*alert*.55*flicker*smoothstep(.3,.1,b.z);
+    }else{
+      albedo=mix(albedo,vec3(.05,.004,.008),step(b.y,-.15));
+    }
+  }else if(part==2){
+    float along=fract(b.y*31.);
+    if(kind==0){
+      albedo=vec3(.022,.02,.026);rough=.16;f0=.06;coat=.8;
+    }else if(kind==1){
+      albedo=mix(vec3(.80,.74,.56),vec3(.46,.36,.2),smoothstep(.3,.7,noise3(b*70.))*.6);
+      albedo*=.8+.2*noise3(vec3(b.x*220.,b.y*30.,b.z*220.));
+      rough=.38;f0=.05;
+    }else{
+      albedo=mix(vec3(.86,.82,.68),vec3(.58,.42,.2),smoothstep(.2,.8,noise3(b*55.))*.45);
+      albedo=mix(albedo,vec3(.4,.02,.02),smoothstep(.55,.9,noise3(b*33.+seed))*.5);
+      rough=.25;f0=.05;coat=.5;
+    }
+    albedo*=.9+.1*along;
+  }else if(part==3){
+    float t=smoothstep(.36,.82,b.y);
+    float ridge=sin(b.y*150.+sin(atan(b.z,ax-.25)*3.)*1.5)*.5+.5;
+    albedo=mix(vec3(.07,.02,.02),vec3(.72,.62,.4),t*t);
+    albedo*=.78+.3*ridge;height+=ridge*.25;
+    rough=mix(.3,.5,t);coat=.6*(1.-t);
+  }else if(part==4){
+    if(kind==2){
+      // Gilded eyes with slit pupils.
+      float pupil=1.-smoothstep(.006,.011,abs(ax-.155+(b.y-.077)*.08));
+      float iris=1.-smoothstep(.02,.034,length(vec2(ax-.155,b.y-.077)));
+      albedo=mix(vec3(.82,.6,.18),vec3(.02),pupil*step(.24,b.z));
+      metal=1.-pupil;rough=.22;
+      emission+=vec3(1.,.72,.15)*iris*(1.-pupil)*(.25+alert*5.)*flicker;
+    }else{
+      albedo=vec3(.9);
+      emission+=mix(vec3(.75,.85,1.)*2.5,vec3(1.,.1,.04)*26.,alert)*flicker;
+    }
+  }else if(kind==0){
+    // Aged porcelain: yellowed glaze, craquelure, painted brows and black tear tracks.
+    vec3 glaze=vec3(.83,.81,.76);
+    float aged=fbm3(b*5.+seed*7.);
+    glaze=mix(glaze,vec3(.70,.62,.47),smoothstep(.42,.72,aged)*.5);
+    glaze*=.94+.08*noise3(b*140.)*fine;
+    float craze=max(hairline,vein(b*43.-seed,.016)*.55*fine);
+    glaze*=1.-craze*.34;
+    float brow=spot(vec2(ax,b.y),vec2(.125,.365),vec2(.075,.03))*step(.1,b.z);
+    glaze=mix(glaze,vec3(.10,.09,.10),brow*.78*(.55+.45*noise3(b*60.)));
+    float trail=1.-smoothstep(0.,.04,abs(ax-.15+.018*sin(b.y*23.+seed*5.)));
+    float tear=trail*smoothstep(.09,.04,b.y)*smoothstep(-.4,-.08,b.y)*(.45+.55*noise3(vec3(ax*70.,b.y*7.,seed)));
+    glaze=mix(glaze,vec3(.03,.02,.025),tear*.86*step(.05,b.z));
+    glaze=mix(glaze,vec3(.34,.03,.04),rim*step(b.y,-.16)*.9);
+    glaze=mix(glaze,vec3(.08,.06,.07),rim*step(-.05,b.y)*.75);
+    float chipped=smoothstep(.66,.72,noise3(b*9.+seed*2.))*smoothstep(.5,.8,noise3(b*2.6-seed));
+    albedo=mix(glaze,vec3(.42,.36,.3)*(.8+.3*noise3(b*200.)),chipped);
+    rough=mix(.2,.8,chipped);f0=.05;coat=.9*(1.-chipped);translucency=.12;
+    height=-craze*.6-chipped*.9+tear*.1;
+  }else if(kind==1){
+    // Old bone: pores, stains, the skull sutures and worn edges.
+    vec3 bone=vec3(.74,.69,.55);
+    bone*=.88+.16*noise3(b*95.)*fine+.06*noise3(b*31.);
+    float stain=fbm3(b*3.1+seed*7.);
+    bone=mix(bone,vec3(.40,.31,.18),smoothstep(.42,.72,stain)*.62);
+    float sagittal=(1.-smoothstep(0.,.007,abs(b.x+.012*sin(b.z*90.)+.006*sin(b.z*37.))))*step(.32,b.y);
+    float coronal=(1.-smoothstep(0.,.007,abs(b.z-.03-.12*ax+.012*sin(b.x*85.))))*step(.26,b.y);
+    float suture=max(sagittal,coronal);
+    bone*=1.-.62*suture-.3*hairline;
+    bone=mix(bone,vec3(.16,.11,.07),rim*.7);
+    float pit=smoothstep(.7,.78,noise3(b*37.+seed));
+    bone*=1.-.3*pit*fine;
+    albedo=bone;rough=.66;translucency=.08;
+    height=-suture-hairline*.4-pit*.5+noise3(b*95.)*.12;
+  }else{
+    // Vermilion lacquer over carved wood, chipped where it has been struck.
+    vec3 lacquer=vec3(.50,.045,.035);
+    float blot=fbm3(b*4.+seed*3.);
+    lacquer=mix(lacquer,vec3(.2,.012,.018),smoothstep(.4,.7,blot)*.72);
+    float furrow=(sin(b.y*150.+sin(ax*18.)*2.)*.5+.5)*smoothstep(.2,.3,b.y)*smoothstep(.52,.38,b.y)*step(.1,b.z);
+    float laugh=(1.-smoothstep(0.,.012,abs(length(vec2(ax-.02,b.y+.3)*vec2(1.,1.25))-.27)))*step(b.y,-.05)*step(.12,b.z);
+    lacquer*=1.-.3*furrow-.4*laugh;
+    float gold=smoothstep(.5,.8,noise3(b*13.+seed))*smoothstep(.1,.25,b.y)*smoothstep(.27,.33,b.z)*(1.-furrow);
+    lacquer=mix(lacquer,vec3(.72,.5,.14),gold*.55);
+    float chipped=smoothstep(.62,.7,noise3(b*23.+seed*11.))*smoothstep(.45,.75,noise3(b*6.-seed));
+    vec3 wood=vec3(.36,.24,.13)*(.78+.4*noise3(vec3(b.x*90.,b.y*8.,b.z*90.)));
+    albedo=mix(lacquer,wood,chipped);
+    albedo=mix(albedo,vec3(.03,.01,.012),rim*.8);
+    metal=gold*.5*(1.-chipped);
+    rough=mix(.2,.78,chipped);f0=.06;coat=1.-chipped;
+    height=-furrow*.5-laugh*.8-chipped*.9-hairline*.2;
+  }
+  if(part==0||part==3){
+    albedo*=1.-fissure*.72;
+    height-=fissure*1.4;
+    emission+=vec3(1.,.36,.07)*fissure*hurt*hurt*7.*flicker;
+  }
+  if(fine>.02&&height!=0.)n=emboss(n,height*.012,fine);
+  // A stunned face goes cold and grey.
+  albedo=mix(albedo,vec3(luminance(albedo))*vec3(.62,.68,.76),stun*.7);
+  emission*=1.-stun;
+  float NoL=max(dot(n,uSun),0.),NoV=max(dot(n,v),1e-3);
+  float shadow=sunShadow(wPos,n,NoL)*cloudShadow(wPos,uSun);
+  float share;
+  vec3 color=shadeSurface(albedo,n,v,rough,metal,f0,shadow,ao,translucency,sheen,share);
+  if(coat>0.){
+    float F=.04+.96*pow5(1.-NoV);
+    vec3 h=normalize(v+uSun);
+    vec3 glint=uSunColor*D_GGX(max(dot(n,h),0.),.004)*V_SmithGGX(NoV,NoL,.004)*F*NoL*shadow;
+    color=color*(1.-F*coat)+(environment(reflect(-v,n),.05)*F*ao+glint)*coat;
+  }
+  // The eyes stay visible in shade, like something lit from inside.
+  color+=emission;
+  color=aerial(color,wPos,viewEdge(wPos));
+  frag=encodeOutput(color,share);
+}`;
 
 export function createActorRenderer(gl,{compileProgram,mobile}){
   const programs={
     human:compileProgram(gl,humanVertex,humanFragment),
     humanDepth:compileProgram(gl,humanVertex,depthFragment),
     car:compileProgram(gl,carVertex,carFragment),
-    carDepth:compileProgram(gl,carVertex,depthFragment)
+    carDepth:compileProgram(gl,carVertex,depthFragment),
+    face:compileProgram(gl,faceVertex,faceFragment),
+    faceDepth:compileProgram(gl,faceVertex,depthFragment)
   };
   const meshes=new Map(),buckets=new Map();
-  let humans=null,cars=null,shadowOnly=null,ready=false;
+  let humans=null,cars=null,faces=null,shadowOnly=null,ready=false;
 
   function addMesh(key,{vertices,indices}){
     const buffer=gl.createBuffer(),elements=gl.createBuffer();
@@ -440,7 +642,7 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   }
   function received(list){
     for(const {key,mesh} of list)if(!meshes.has(key))addMesh(key,mesh);
-    ready=['human0-0','human1-0','human2-0','car-0'].every(k=>meshes.has(k));
+    ready=['human0-0','human1-0','human2-0','car-0','face0-0','face1-0','face2-0'].every(k=>meshes.has(k));
   }
   // The meshes are built off the main thread; the detailed path switches on once the
   // low-detail bodies have arrived. A failing worker falls back to building only what is missing.
@@ -527,6 +729,17 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
       if(near.length)groups.push({program:'car',key:(shadow?'s':'')+'car-1',meshKey:'car-1',source:cars,indices:near});
       if(far.length)groups.push({program:'car',key:(shadow?'s':'')+'car-0',meshKey:'car-0',source:cars,indices:far});
     }
+    if(faces?.length){
+      const lists=new Map();
+      for(let i=0;i<faces.length/16;i++){
+        const dx=faces[i*16]-eye[0],dz=faces[i*16+2]-eye[2],kind=Math.round(faces[i*16+5]);
+        const near=!shadow&&dx*dx+dz*dz<(mobile?48:95)**2&&meshes.has('face'+kind+'-1');
+        const key='face'+kind+'-'+(near?1:0);
+        if(!lists.has(key))lists.set(key,[]);
+        lists.get(key).push(i);
+      }
+      for(const [key,indices] of lists)groups.push({program:'face',key:(shadow?'s':'')+key,meshKey:key,source:faces,indices});
+    }
     for(const group of groups){
       group.entry=bucket(group.key,group.meshKey);
       if(group.entry)fill(group.entry,group.source,group.indices);
@@ -536,11 +749,11 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   return {
     get ready(){return ready;},
     programs:Object.values(programs),
-    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;shadowOnly=walkers?.shadowHumans??null;},
+    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;faces=walkers?.faces??null;shadowOnly=walkers?.shadowHumans??null;},
     draw({vp,eye,time,send,planes}){
       if(!ready)return;
       const groups=prepare(eye,false,planes);
-      for(const name of ['human','car']){
+      for(const name of ['human','car','face']){
         const list=groups.filter(g=>g.program===name&&g.entry);
         if(!list.length)continue;
         const p=programs[name];
@@ -557,7 +770,7 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     drawShadows(matrix,time,eye,planes){
       if(!ready)return;
       const groups=prepare(eye??[0,0,0],true,planes);
-      for(const name of ['human','car']){
+      for(const name of ['human','car','face']){
         const list=groups.filter(g=>g.program===name&&g.entry);
         if(!list.length)continue;
         const p=programs[name+'Depth'];

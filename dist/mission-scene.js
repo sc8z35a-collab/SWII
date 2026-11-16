@@ -6,6 +6,7 @@ import {CANNON_DROP,CANNON_PITCH,EVACUATION_MS,launchHeight,launchSite} from './
 import {missionData} from './mission-data.js';
 import {withDeadline} from './network.js';
 import {WORLD_VERSION} from './geography.js';
+import {RD2} from './ballistics.js';
 
 const {x,z,half,engines}=launchSite;
 const floor=missionData.padFloor;
@@ -80,22 +81,70 @@ function gaitPhase(actor,stride){
   gaits.set(key,{walked:actor.walked,phase:phase%(Math.PI*2)});
   return phase;
 }
-function drawEnemy(meshes,actor,clock){
-  const {scale,walked,speedNow,alerted}=actor;
+// 0 while standing, 1 while knocked out; the fall and the recovery each take under a second.
+const collapse=actor=>actor.stun>0?Math.min(clamp((RD2.stunMs-actor.stun)/650),clamp(actor.stun/900)):0;
+function stunMarks(effects,actor,clock,height){
+  // Three slow lights circle a creature that is out cold; they blink before it wakes.
+  const waking=actor.stun<12000?.5+.5*Math.sin(clock*9):1;
+  for(let i=0;i<3;i++){
+    const a=clock*2.1+i*2.094,r=(.34+.05*Math.sin(clock*3+i))*actor.scale;
+    fume(effects,i,[actor.x+Math.sin(a)*r,actor.y+height+Math.sin(clock*2.6+i)*.06,actor.z+Math.cos(a)*r],
+      .16*Math.sqrt(actor.scale),'bfe6ff',.78*waking,SPIRIT);
+  }
+}
+function drawFace(meshes,effects,actor,clock){
+  const down=smooth(collapse(actor)),size=actor.size??4.6,hover=actor.hover??3.1,seed=noise(actor.id.length*7.3+(actor.id.charCodeAt(actor.id.length-1)||0));
+  const alert=actor.alerted?1:actor.mode==='track'?.45:0;
+  const y=actor.y+mix(hover,size*.2,down);
+  if(down>.4)stunMarks(effects,{...actor,scale:size*.55},clock,size*.62);
   if(meshes.detailed){
-    const stride=alerted?2.55:1.16;
-    (meshes.humans??=[]);
-    humanInstance(meshes.humans,{x:actor.x,y:actor.y,z:actor.z,yaw:actor.yaw,scale,build:scale>1?1.12:1.04,
-      phase:gaitPhase(actor,stride),gait:clamp(speedNow/(scale*1.6)),stride,reach:0,
-      skin:scale>1?'8b8f7d':'aaa797',hair:'1d1f1f',top:scale>1?'515c59':'2a3539',bottom:scale>1?'303b3d':'283234',
-      shoe:'1a1c1d',style:(2<<8)|1|32|(alerted?16:0)});
+    const jaw=down>0?mix(.1,.75,down):alert>.9?.5+.32*Math.sin(clock*5.3+seed*9):.1+.06*Math.sin(clock*.8+seed*5)+alert*.2;
+    (meshes.faces??=[]).push(actor.x,y,actor.z,actor.yaw,size,actor.face,alert,down,jaw,
+      -1.32*down,.22*down,seed,clamp((actor.hits??0)/RD2.stunHits),0,0,0);
     return;
   }
-  const stride=scale*(alerted?2.55:1.16),cycle=walked/stride*2*Math.PI;
+  // Plain shapes for the software renderer: a head, two hollow eyes and a mouth.
+  const frame=meshFrame(meshes,{x:actor.x,y,z:actor.z,yaw:actor.yaw,pitch:-1.32*down});
+  const m=(kind,a,h,b,w,H,d,paint,mat=0)=>frame.part(kind,a*size,h*size,b*size,w*size,H*size,d*size,paint,mat);
+  const skin=['d9d5c8','c4b890','8a1a15'][actor.face]??'d9d5c8';
+  m('ball',0,.03,0,.76,1.0,.62,skin,57);
+  for(const side of [-1,1]){
+    m('ball',side*.15,.08,.25,.18,actor.face===0?.07:.2,.12,'0c0b0c',SOOT);
+    m('ball',side*.15,.08,.3,.05,.05,.04,actor.alerted?'ff5038':'f3e9c8',actor.alerted?IGNITION:7);
+    if(actor.face===2)m('cone',side*.25,.58,.02,.12,.44,.12,'3a1c14',LEATHER);
+  }
+  m('box',0,-.27,.27,.4,actor.face===0?.035:.09,.06,'0c0a0b',SOOT);
+  for(let i=-3;i<=3;i++)m('box',i*.05,-.25,.3,.03,.05,.02,actor.face===0?'18171a':'e2dcc4',PAPER);
+}
+function drawEnemy(meshes,effects,actor,clock){
+  if(actor.face!==undefined){drawFace(meshes,effects,actor,clock);return;}
+  const {scale,walked,speedNow,alerted}=actor,down=collapse(actor);
+  if(down>.4)stunMarks(effects,actor,clock,.75*scale);
+  const tracking=actor.mode==='track';
+  if(meshes.detailed){
+    const stride=alerted?2.55:tracking?1.7:1.16;
+    (meshes.humans??=[]);
+    humanInstance(meshes.humans,{x:actor.x,y:actor.y,z:actor.z,yaw:actor.yaw,scale,build:scale>1?1.12:1.04,
+      phase:gaitPhase(actor,stride),gait:down>0?0:clamp(speedNow/(scale*1.6)),stride,reach:0,
+      skin:scale>1?'8b8f7d':'aaa797',hair:'1d1f1f',top:scale>1?'515c59':'2a3539',bottom:scale>1?'303b3d':'283234',
+      shoe:'1a1c1d',style:(2<<8)|1|32|(alerted?16:0)|(down>.5?64:0)});
+    return;
+  }
+  const jacket=scale>1?'515c59':'2a3539',cloth=scale>1?'303b3d':'283234',face=scale>1?'8b8f7d':'aaa797';
+  if(down>.5){
+    // Knocked out: the figure lies on its back.
+    const lying=meshFrame(meshes,{...actor,y:actor.y+.13*scale});
+    const flat=(kind,a,h,b,w,y,d,c,mat=0)=>lying.part(kind,a*scale,h*scale,b*scale,w*scale,y*scale,d*scale,c,mat);
+    flat('chamfer',0,0,-.62,.5,.24,.62,jacket,41);
+    flat('chamfer',0,0,-1.42,.36,.2,.86,cloth,41);
+    flat('ball',0,.03,-.14,.24,.23,.28,face,57);
+    for(const side of [-1,1])flat('chamfer',side*.36,-.03,-.7,.14,.13,.66,jacket,41);
+    return;
+  }
+  const stride=scale*(alerted?2.55:tracking?1.7:1.16),cycle=walked/stride*2*Math.PI;
   const weight=clamp(speedNow/(scale*2.2)),drive=Math.sin(cycle)*weight,breath=Math.sin(clock*2.4)*.009;
   const model=meshFrame(meshes,{...actor,y:actor.y+scale*(Math.abs(Math.sin(cycle))*.034*weight+breath)});
   const {point,part:m}=model;
-  const jacket=scale>1?'515c59':'2a3539',cloth=scale>1?'303b3d':'283234',face=scale>1?'8b8f7d':'aaa797';
   const paint=(kind,a,h,b,w,y,d,c,mat=0)=>m(kind,a*scale,h*scale,b*scale,w*scale,y*scale,d*scale,c,mat);
   const limb=(a,b,w,c,mat)=>beam(meshes,point(...a.map(v=>v*scale)),point(...b.map(v=>v*scale)),w*scale,w*.83*scale,c,mat);
   const lean=alerted?.17:.013;
@@ -116,6 +165,48 @@ function drawEnemy(meshes,actor,clock){
     paint('chamfer',ankle[0],ankle[1]-.025,t*.46+.058,.16,.116,.32,'24282a',42);
     paint('ball',side*.050,1.589,lean*1.13+.126,.026,.015,.010,alerted?'ff5842':'ad8060',alerted?IGNITION:25);
     paint('box',side*.125,1.29,lean+.075,.097,.108,.035,'7d7b68',LEATHER);
+  }
+}
+// An olive ammunition tin with a stencilled band, a carrying handle and loose cartridges on the lid.
+function drawAmmo(meshes,effects,drop,clock,low){
+  const fall=clamp(1-drop.age/900),height=14*fall*fall,settle=drop.age>900?Math.exp(-(drop.age-900)/90)*Math.sin((drop.age-900)/38)*.05:0;
+  const frame=meshFrame(meshes,{x:drop.x,y:drop.y+height+Math.max(0,settle)+.004,z:drop.z,yaw:drop.id*2.4+fall*5,pitch:fall*.8}),m=frame.part;
+  m('chamfer',0,.105,0,.34,.2,.19,'4c5a3a',HEAT_METAL);
+  m('chamfer',0,.215,0,.352,.03,.2,'3f4b31',HEAT_METAL);
+  m('box',0,.105,.0965,.25,.062,.004,'d8c070',PAPER);
+  m('box',0,.105,-.0965,.25,.062,.004,'d8c070',PAPER);
+  for(const a of [-.07,-.025,.02,.065,.11])m('box',a,.105,.099,.012,.04,.003,'2b2e22',SOOT);
+  for(const side of [-1,1]){
+    m('box',side*.176,.15,0,.012,.07,.06,'8d8f86',HEAT_METAL);
+    m('box',side*.09,.255,0,.014,.05,.014,'2a2c28',LEATHER);
+  }
+  m('box',0,.283,0,.2,.014,.022,'2a2c28',LEATHER);
+  if(!low)for(let i=0;i<3;i++){
+    const a=-.1+i*.05,b=.05-i*.03;
+    m('tube',a,.238,b,.012,.021,.012,'c9a24a',HEAT_METAL,[frame.right,frame.forward,frame.up]);
+    m('cone',a,.238,b+.016,.0115,.012,.0115,'b87a45',HEAT_METAL,[frame.right,frame.forward,frame.up]);
+  }
+  if(fall>0){
+    streak(effects,[drop.x,drop.y+height+.3,drop.z],[drop.x,drop.y+height+2.6,drop.z],.16,.5*fall,SPIRIT,'ffe7a8');
+  }else{
+    const pulse=.75+.25*Math.sin(clock*4.2+drop.id);
+    fume(effects,drop.id,[drop.x,drop.y+.62,drop.z],.3*pulse,'ffd98a',.62,SPIRIT);
+    if(drop.age<1500)fume(effects,drop.id+9,[drop.x,drop.y+.12,drop.z],.5+(drop.age-900)/400,'b4a78e',(1-(drop.age-900)/600)*.5,DUST);
+  }
+}
+function drawBullet(effects,bullet){
+  const speed=Math.hypot(bullet.vx,bullet.vy,bullet.vz)||1,d=[bullet.vx/speed,bullet.vy/speed,bullet.vz/speed];
+  const head=[bullet.x,bullet.y,bullet.z],length=Math.min(7.5,Math.max(.4,(bullet.age??0)*.001*speed));
+  streak(effects,add(head,d,-length),head,.05,.95,IGNITION,'ffd9a0');
+}
+function impactEffects(effects,impact,low){
+  const t=impact.age/1000,p=[impact.x,impact.y,impact.z];
+  if(t<.09)fume(effects,impact.id,p,impact.flesh?.5:.34,impact.flesh?'ff6a52':'ffe1a6',.9*(1-t/.09),SPIRIT);
+  const count=low?2:5;
+  for(let i=0;i<count;i++){
+    const a=i*2.399+impact.id,spread=(.25+noise(i+impact.id)*.9)*t;
+    fume(effects,i+impact.id*7,[p[0]+Math.sin(a)*spread,p[1]+t*(.5+noise(i+3)*.9)-t*t*1.6,p[2]+Math.cos(a)*spread],
+      .12+t*.9,impact.flesh?'5d2f2a':'b9b1a0',(1-t/.7)*.5,DUST);
   }
 }
 function copyAssembly(meshes,lift){
@@ -246,6 +337,7 @@ function launchEffects(effects,mission,thrust,now,low){
       fume(effects,i,[px,floor+.3+(t*2.5+noise(i+3)*3.7)*t,pz],.10+noise(i+14)*.61,'e9d6ab',(1-t)*t*.67,SPIRIT);
     }
     for(const actor of mission.releases??[]){
+      if(Math.hypot(actor.x-x,actor.z-z)>420)continue;
       for(let i=0;i<(low?9:21);i++){
         const t=clamp((age-noise(i+5)*1.05)/3.0),a=i*2.399+t*3.85,r=(.17+t*t*1.22)*actor.scale;
         const p=[actor.x+Math.sin(a)*r,actor.y+(.25+noise(i+9)*1.33+t*t*5.0)*actor.scale,actor.z+Math.cos(a)*r];
@@ -311,7 +403,8 @@ function effectsToMesh(meshes,effects,eye){
     out.push(...point,...right.map(n=>n*size),...up.map(n=>n*(length??size)),...normal,...rgb(paint),kind+alpha);
   }
 }
-export function drawMission(meshes,mission,eye,now,low=false,groundAt){
+// low draws fewer particles; short keeps everything within the 50 m radius of the light mode.
+export function drawMission(meshes,mission,eye,now,low=false,groundAt,short=false){
   const effects=[];
   const lift=mission.lift??launchHeight(mission.phase,mission.elapsed),gap=Math.hypot(eye[0]-x,eye[2]-z);
   const liftDistance=Math.hypot(gap,eye[1]-floor-lift);
@@ -331,13 +424,16 @@ export function drawMission(meshes,mission,eye,now,low=false,groundAt){
   }
   const picked=new Set(mission.picked??[]);
   if(mission.phase==='books')for(const book of missionData.books)
-    if(!picked.has(book.id)&&delta(eye,[book.x,book.y,book.z])<(low?58:90))drawBook(meshes,book,now);
-  for(const actor of mission.enemies??[])if(Number.isFinite(actor.y)&&delta(eye,[actor.x,actor.y,actor.z])<190)
-    drawEnemy(meshes,actor,now);
+    if(!picked.has(book.id)&&delta(eye,[book.x,book.y,book.z])<(short?52:low?58:90))drawBook(meshes,book,now);
+  for(const actor of mission.enemies??[])if(Number.isFinite(actor.y)&&delta(eye,[actor.x,actor.y,actor.z])<(short?60:230))
+    drawEnemy(meshes,effects,actor,now);
+  for(const drop of mission.drops??[])if(delta(eye,[drop.x,drop.y,drop.z])<(short?52:120))drawAmmo(meshes,effects,drop,now,low);
+  for(const bullet of mission.bullets??[])drawBullet(effects,bullet);
+  for(const impact of mission.impacts??[])if(delta(eye,[impact.x,impact.y,impact.z])<160)impactEffects(effects,impact,low);
   const cars=new Map((mission.cars??[]).map(car=>[car.id,car]));
   for(const initial of missionData.cars){
     const car=cars.get(initial.id)??initial;
-    if(car.id!==mission.driver&&delta(eye,[car.x,car.y,car.z])<(low?85:150)){
+    if(car.id!==mission.driver&&delta(eye,[car.x,car.y,car.z])<(short?56:low?85:150)){
       const s=Math.sin(car.yaw)*1.37,c=Math.cos(car.yaw)*1.37;
       const front=groundAt?.(car.x+s,car.z-c)??car.y,rear=groundAt?.(car.x-s,car.z+c)??car.y;
       drawCar(meshes,{...car,parked:true},Math.atan2(front-rear,2.74));
@@ -410,4 +506,74 @@ export function updateVehicleModel(meshes,player,pitch,input={},now=performance.
   const reversing=speed<-.3||throttle<0&&speed<.3;
   drawCar(meshes,{...player,paint:car?.paint},pitch,odometer.spin,suspension.steer,
     {lights:(braking?CAR_BRAKE:0)|(reversing?CAR_REVERSE:0),bodyPitch:suspension.pitch,bodyRoll:suspension.roll});
+}
+
+// The RD II in the player's hand: a slide with three barrels side by side, a drum magazine
+// for 120 rounds, a stippled grip and a gloved hand. Built in view space every frame.
+// Strokes of each letter in a unit cell: center and size.
+const letters={R:[[.1,.5,.2,1],[.5,.93,.6,.14],[.5,.5,.6,.14],[.85,.72,.18,.5],[.74,.2,.2,.42]],
+  D:[[.1,.5,.2,1],[.5,.93,.6,.14],[.5,.07,.6,.14],[.85,.5,.18,.74]],I:[[.5,.5,.2,1],[.5,.93,.7,.14],[.5,.07,.7,.14]]};
+export function drawHeldGun(meshes,eye,yaw,pitch,{kick=0,reload=0,flash=0,sway=[0,0],lowered=0,muzzleHeat=0,retract=0}={}){
+  const view=meshFrame({},{x:0,y:0,z:0,yaw,pitch});
+  const swing=Math.sin(reload*Math.PI),drop=lowered+swing*.11+retract*.03;
+  // Close to a wall the pistol is drawn back and raised, so that it does not pass through the surface.
+  const anchor=eye.map((n,i)=>n+view.right[i]*(.118+sway[0]-swing*.03)+view.up[i]*(-.118+sway[1]-drop)+
+    view.forward[i]*(.36-kick*.035-retract*.17));
+  const gun=meshFrame(meshes,{x:anchor[0],y:anchor[1],z:anchor[2],yaw:yaw-.045+swing*.5,
+    pitch:pitch+kick*.2-swing*.55-lowered*2.2+retract*1.05});
+  const {right,up,forward,back,part:m,point}=gun;
+  const metal=HEAT_METAL,steel='3b4046',dark='22262a',grip='2b2a28';
+  const lengthwise=[right,forward,up];
+  // Slide and frame.
+  m('chamfer',0,.012,.03,.071,.034,.215,steel,metal);
+  m('box',0,.031,.03,.058,.004,.2,dark,metal);
+  m('chamfer',0,-.014,.0,.062,.02,.15,'30353a',metal);
+  for(let i=0;i<7;i++)for(const side of [-1,1])m('box',side*.0362,.012,-.052+i*.0085,.002,.026,.0035,dark,SOOT);
+  m('box',0,.014,.085,.05,.012,.03,dark,SOOT);
+  // Three barrels with crowned muzzles.
+  for(const side of [-1,0,1]){
+    m('tube',side*.0215,.012,.146,.0185,.022,.0185,'565c61',metal,lengthwise);
+    m('tube',side*.0215,.012,.158,.0122,.004,.0122,'0b0c0d',SOOT,lengthwise);
+    if(flash>0){
+      const size=.045+.05*flash;
+      m('ball',side*.0215,.012,.19+flash*.03,size,size,size*2.2,'ffd08a',IGNITION);
+    }
+  }
+  if(flash>0)m('ball',0,.012,.24,.16*flash,.13*flash,.2*flash,'ffb060',IGNITION);
+  if(muzzleHeat>0)for(const side of [-1,0,1])m('tube',side*.0215,.012,.1545,.0155,.002,.0155,'ff8a4a',IGNITION,lengthwise);
+  // Sights: a notch at the rear and a lit post at the front.
+  for(const side of [-1,1])m('box',side*.011,.038,-.068,.008,.01,.01,dark,SOOT);
+  m('box',0,.038,.128,.005,.011,.01,dark,SOOT);
+  m('box',0,.0445,.123,.0032,.0032,.001,'8dffb0',7);
+  for(const side of [-1,1])m('box',side*.011,.0405,-.0735,.003,.003,.001,'ffd27a',7);
+  // Trigger guard and trigger.
+  m('box',0,-.05,.047,.012,.004,.058,dark,metal);
+  m('box',0,-.036,.076,.012,.03,.004,dark,metal);
+  m('box',0,-.036,.032,.007,.022,.005,'8d9196',metal);
+  // Grip, raked back, with a drum magazine below it.
+  const rake=.26,s=Math.sin(rake),c=Math.cos(rake);
+  const raked=[right,up.map((n,i)=>n*c-back[i]*s),back.map((n,i)=>n*c+up[i]*s)];
+  m('chamfer',0,-.073,-.047,.054,.115,.062,grip,42,raked);
+  for(let i=0;i<5;i++)for(const side of [-1,1])m('box',side*.0278,-.04-i*.017,-.036-i*.0045,.002,.006,.04,'18191a',LEATHER,raked);
+  m('chamfer',0,-.136,-.064,.058,.012,.07,dark,metal,raked);
+  m('tube',0,-.172,-.052,.118,.05,.118,'2e3236',metal,[up,right,back.map(n=>-n)]);
+  m('tube',0,-.172,-.052,.07,.054,.07,'50565b',metal,[up,right,back.map(n=>-n)]);
+  for(const side of [-1,1])m('tube',side*.0262,-.172,-.052,.02,.003,.02,'c9a24a',metal,[up,right,back.map(n=>-n)]);
+  // "RD II" inlaid in brass on the left of the slide.
+  const text=['R','D',null,'I','I'];
+  for(const [index,letter] of text.entries()){
+    if(!letter)continue;
+    // Seen from the left of the pistol the muzzle is on the left, so the word runs toward the rear.
+    for(const [u,v,w,h] of letters[letter])
+      m('box',-.0362,.004+v*.014,.062-(index*1.3+u)*.0088,.0012,h*.014,w*.0088,'d5b674',metal);
+  }
+  // Gloved hand and forearm.
+  const glove='1d2022',sleeve='2f3a3c';
+  m('chamfer',.004,-.07,-.075,.074,.1,.05,glove,LEATHER,raked);
+  for(let i=0;i<3;i++)m('tube',-.012,-.052-i*.024,-.012-i*.006,.024,.07,.024,glove,LEATHER,[up,right,back.map(n=>-n)]);
+  m('tube',-.03,-.012,-.03,.022,.07,.022,glove,LEATHER,lengthwise);
+  m('tube',.012,-.028,.052,.02,.05,.02,glove,LEATHER,lengthwise);
+  beam(meshes,point(.012,-.1,-.1),point(.07,-.22,-.36),.085,.078,sleeve,41);
+  beam(meshes,point(.006,-.085,-.085),point(.02,-.115,-.14),.079,.07,glove,LEATHER);
+  return {muzzle:point(0,.012,.165)};
 }

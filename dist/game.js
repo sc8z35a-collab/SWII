@@ -18,9 +18,13 @@ import {playerFloor,resolveTransport,transportDestination} from './transport.js'
 import {createMission,missionPlazaFloor,missionSpawn,missionTerminal} from './mission.js';
 import {ASCENT_MS,BOOK_TARGET,EVACUATION_MS,FIRE_INTERVAL,PLAYER_HEIGHT,SURVIVAL_MS,launchHeight,launchSite} from './mission-layout.js';
 import {createVisibility} from './visibility.js';
-import {drawMission,enemyGait,missionLight,requestLaunchAssembly,updateVehicleModel} from './mission-scene.js';
+import {drawHeldGun,drawMission,enemyGait,missionLight,requestLaunchAssembly,updateVehicleModel} from './mission-scene.js';
 import {missionData} from './mission-data.js';
 import {nearVehicle} from './driving.js';
+import {RD2,muzzleDeceleration} from './ballistics.js';
+import {ACTIVE_RANGE} from './pursuit.js';
+import {distanceToBounds} from './mesh-batches.js';
+import {createSound} from './sound.js';
 import {drawBirds} from './birds.js';
 import {createAudio} from './audio.js';
 import {loadGeneratedTextures} from './generated-textures.js';
@@ -31,7 +35,10 @@ const stage=$('stage'), panel=$('panel'), panelBody=$('panelBody');
 const look=$('look'),joystick=$('joystick'),stick=$('stick'),runButton=$('runBtn');
 let save=readProgress();
 try{save=readProgress(localStorage);}catch{}
-const saveKey='atlantis.survival.v1';
+const saveKey='atlantis.survival.v2';
+// The light mode: 400 lines, up to 120 frames a second and nothing drawn beyond 50 m.
+const LIGHT_RADIUS=50,LIGHT_REACH=150,LIGHT_FPS=120;
+const sound=createSound();
 let localRun=null;
 try{
   const saved=JSON.parse(localStorage.getItem(saveKey));
@@ -42,9 +49,10 @@ const sight=createVisibility(async path=>{
   const response=await fetch(path);
   if(!response.ok)throw Error('Visibility tile unavailable');
   return response;
-});
+},48);
 const audio=createAudio();
 audio.setVolume(save.volume);
+sound.setVolume(save.volume);
 $('fps').hidden=!save.showFps;
 let mission=createMission(sight,localRun?.mission),missionView=mission.view(),previousView=null,viewSince=0;
 let lastEvent=missionView.event?.id??0,damageAt=-Infinity,prefetchAt=0,cloudStarted=false,missionCatch=false;
@@ -63,10 +71,11 @@ let shoreX=Infinity,shoreZ=Infinity;
 const animationEpoch=(Date.now()-performance.now())/1000;
 const coarsePointer=matchMedia('(pointer:coarse)'),reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const keys=new Set();
-let compassAngle=-1,driveInput={},shownHealth=-1,shownDamage=-1,stepDistance=0,travelTarget=null;
+let compassAngle=-1,padFire=false,driveInput={},shownHealth=-1,shownDamage=-1,stepDistance=0,travelTarget=null;
 // Gamepad state: stick movement, held run/brake and edge-triggered buttons.
 const pad={move:[0,0],run:false,buttons:[]};
 const healthPips=[...$('health').querySelectorAll('i')];
+let trigger=false,lastShotAt=-Infinity,kick=0,flashUntil=0,seenShots=0,seenHits=0,hitUntil=0,emptyAt=0,reloadHeard=false,retract=0;
 
 const canMove=()=>journey.connected||journey.mode==='local';
 const transitClock=()=>Date.now()+serverClock;
@@ -78,7 +87,7 @@ function applyProgress(next){
     autoScale=1;frameAverage=0;stableWindows=0;
     renderer?.setQuality(save.quality);
   }
-  audio.setVolume(save.volume);
+  audio.setVolume(save.volume);sound.setVolume(save.volume);
   $('fps').hidden=!save.showFps;
   if(!save.mouseLock&&document.pointerLockElement)document.exitPointerLock?.();
   if(panelName==='settings')syncSettings();
@@ -116,7 +125,8 @@ function updateStart(){
 function prefetched(player,now){
   if(now<prefetchAt)return;
   prefetchAt=now+900;
-  void sight.around(player.x,player.z,missionView.phase==='books'?128:72).catch(()=>{});
+  void sight.around(player.x,player.z,missionView.phase==='books'?ACTIVE_RANGE+6:72).catch(()=>{});
+  if(!journey.connected)for(const hunter of mission.hunters())void sight.around(hunter.x,hunter.z,40).catch(()=>{});
   if(missionView.phase==='books'){
     const spawn=missionSpawn();
     void world.ready(spawn.x,spawn.z).catch(()=>{});
@@ -159,12 +169,16 @@ function missionHud(view,now){
   }
   // The last point of durability: the screen edge pulses red.
   stage.classList.toggle('critical',running&&hp===1);
-  const pursuers=enemies.filter(e=>e.alerted);
+  const pursuers=enemies.filter(e=>e.alerted&&!(e.stun>0));
+  const trackers=enemies.filter(e=>e.mode==='track'&&!(e.stun>0));
   const nearbyMissiles=missiles.filter(m=>Math.hypot(m.x-motion.x,m.z-motion.z,m.y-motion.y)<270);
-  const warning=pursuers.length?'追跡されています':running&&nearbyMissiles.length?'ゲルニカ 接近':running&&missiles.length?'ゲルニカ 発射':'';
+  const warning=pursuers.length?(pursuers.length>1?pursuers.length+'体に追跡されています':pursuers[0].name+'に追跡されています'):
+    trackers.length?'痕跡をたどられています':running&&nearbyMissiles.length?'ゲルニカ 接近':running&&missiles.length?'ゲルニカ 発射':'';
   threat.hidden=!warning||terminal;
   set(threat,warning);
-  stage.dataset.warning=threat.hidden?'':nearbyMissiles.length?'missile':'danger';
+  stage.dataset.warning=threat.hidden?'':nearbyMissiles.length?'missile':pursuers.length||running?'danger':'';
+  threat.dataset.level=pursuers.length||running?'danger':'trace';
+  weaponHud(view,now);
   if(event&&event.id!==lastEvent){
     lastEvent=event.id;
     if(event.kind==='hit'||event.kind==='vehicleHit'||event.kind==='lost'){
@@ -177,8 +191,10 @@ function missionHud(view,now){
     }
     if(event.kind==='purified')toast('敵が成仏しました。広場の外へ退避してください');
     if(event.kind==='vehicleHit')toast('車両が大破しました。徒歩で退避');
-    if(event.kind==='book'){toast('本を拾った　'+event.total+' / 30',true);audio.pickup();}
+    if(event.kind==='book'){toast('本を拾った　'+event.total+' / '+missionData.books.length+'冊',true);audio.pickup();}
     if(event.kind==='hit'||event.kind==='vehicleHit')audio.hit();
+    if(event.kind==='stunned'){toast(event.enemy+'が気絶しました（3分間）');sound.stun();}
+    if(event.kind==='ammo'){toast('弾薬を拾った　+'+event.rounds+'発（所持 '+event.total+'発）');sound.pickup();}
   }
   const result=$('missionResult'),wasHidden=result.hidden;
   result.hidden=!terminal||!active;
@@ -188,6 +204,68 @@ function missionHud(view,now){
     set($('missionResultText'),phase==='escaped'?'ゲルニカの追跡から10分間逃げ切りました。':'耐久力が尽きました。');
     if(active&&wasHidden){releaseControls();writeCheckpoint();$('restart').focus();}
   }
+}
+const armed=()=>active&&!travelling&&!transitPending&&!panel.open&&canMove()&&!missionTerminal(missionView.phase)&&
+  !motion.vehicle&&!motion.station&&!motion.train?.boardedAt;
+function weaponHud(view,now){
+  const gun=view.gun,hud=$('weaponHud'),set=(node,value)=>{if(node.textContent!==value)node.textContent=value;};
+  const usable=Boolean(gun)&&!missionTerminal(view.phase)&&!motion.vehicle&&!motion.station;
+  hud.hidden=!usable;$('reticle').hidden=!usable;$('reloadBtn').hidden=!usable;$('fireBtn').hidden=!usable;
+  if(!usable)return;
+  set($('ammoMag'),String(gun.mag));set($('ammoReserve'),String(gun.reserve));
+  const reloading=gun.reloading>0;
+  hud.dataset.state=gun.mag===0?'empty':gun.mag<=RD2.barrels*5?'low':'';
+  $('reloadProgress').style.transform='scaleX('+(reloading?clamp(1-gun.reloading/RD2.reloadMs,0,1):gun.mag/RD2.magazine)+')';
+  set($('weaponNote'),reloading?'リロード中':gun.mag===0&&gun.reserve===0?'弾切れ — 落ちてくる弾薬箱を拾う':gun.mag===0?'R でリロード':'');
+  $('reloadBtn').disabled=reloading||gun.mag>=RD2.magazine||gun.reserve<=0;
+  if(reloading&&!reloadHeard){reloadHeard=true;sound.reload();}
+  if(!reloading)reloadHeard=false;
+  // Every round that lands is confirmed at the reticle, with the count toward the twenty that stun.
+  if(gun.hitSeq!==seenHits){
+    if(gun.hitSeq>seenHits&&gun.lastHit){
+      const mark=$('hitMark'),count=$('hitCount');
+      mark.classList.remove('show');void mark.offsetWidth;
+      mark.classList.toggle('down',gun.lastHit.down);mark.classList.add('show');
+      set(count,gun.lastHit.down?gun.lastHit.name+' 気絶':gun.lastHit.name+' 命中 '+gun.lastHit.hits+' / '+RD2.stunHits);
+      count.classList.add('show');hitUntil=now+1300;
+      sound.hit();
+    }
+    seenHits=gun.hitSeq;
+  }
+  if(hitUntil&&now>hitUntil){$('hitCount').classList.remove('show');hitUntil=0;}
+  if(gun.shots!==seenShots){
+    // Shots confirmed by the server that were not already shown when the trigger was pulled.
+    if(gun.shots>seenShots&&now-lastShotAt>400){kick=1;flashUntil=now+60;sound.shot();}
+    seenShots=gun.shots;
+  }
+}
+function startReload(){
+  if(!armed())return;
+  const gun=missionView.gun;
+  if(!gun||gun.reloading>0||gun.mag>=RD2.magazine||gun.reserve<=0)return;
+  if(journey.connected)journey.reload();
+  else if(mission.reload())acceptMission(mission.view(),performance.now());
+}
+// One pull fires the three barrels together; holding the trigger repeats at the pistol's cycle time.
+function pullTrigger(now){
+  if(!armed()||now-lastShotAt<RD2.cycleMs)return;
+  const gun=missionView.gun;
+  if(!gun||gun.reloading>0)return;
+  if(gun.mag<=0){
+    if(now-emptyAt>420){emptyAt=now;sound.empty();}
+    startReload();
+    return;
+  }
+  advanceMotion(now);
+  if(journey.connected){
+    if(!journey.fire(heading(yaw),pitch))return;
+  }else{
+    if(!mission.shoot(motion,heading(yaw),pitch))return;
+    acceptMission(mission.view(),now);
+    seenShots=missionView.gun.shots;
+  }
+  lastShotAt=now;kick=1;flashUntil=now+60;
+  sound.shot();
 }
 function acceptMission(next,now){
   if(!next)return;
@@ -201,10 +279,14 @@ function renderedMission(now){
   }
   if(!journey.connected||!previousView)return missionView;
   const a=previousView,b=missionView,t=clamp((now-viewSince)/100,0,1);
-  if(a.phase!==b.phase)return b;
+  // Rounds are carried forward along their velocity until the next confirmed state arrives.
+  const ahead=Math.min(160,now-viewSince),seconds=ahead/1000;
+  const flying={bullets:(b.bullets??[]).map(k=>({...k,x:k.x+k.vx*seconds,y:k.y+k.vy*seconds,z:k.z+k.vz*seconds,age:k.age+ahead})),
+    impacts:(b.impacts??[]).map(k=>({...k,age:k.age+now-viewSince})),drops:(b.drops??[]).map(k=>({...k,age:k.age+now-viewSince}))};
+  if(a.phase!==b.phase)return {...b,...flying};
   const between=(x,y)=>x+(y-x)*t,blend=(old,current)=>({...current,x:between(old.x,current.x),y:between(old.y,current.y),z:between(old.z,current.z)});
   const elapsed=between(a.elapsed,b.elapsed);
-  return {...b,elapsed,lift:launchHeight(b.phase,elapsed),aim:a.aim+heading(b.aim-a.aim)*t,
+  return {...b,...flying,elapsed,lift:launchHeight(b.phase,elapsed),aim:a.aim+heading(b.aim-a.aim)*t,
     missiles:b.missiles.map(m=>{
       const old=a.missiles.find(p=>p.id===m.id);
       return old?{...blend(old,m),age:between(old.age,m.age)}:m;
@@ -229,18 +311,22 @@ function setMotion(next,{reset=false}={}){
 }
 function stream(x,z,now,landmark){
   if(!renderer)return;
-  const cx=Math.round(x/96)*96,cz=Math.round(z/96)*96;
-  const radius=renderer.software?240:save.quality==='low'?312:coarsePointer.matches&&save.quality!=='high'?344:435;
+  const light=save.quality==='low'&&!renderer.software,grid=light?16:96;
+  const cx=Math.round(x/grid)*grid,cz=Math.round(z/grid)*grid;
+  const radius=renderer.software?240:light?LIGHT_RADIUS:coarsePointer.matches&&save.quality!=='high'?344:435;
+  // The light mode still keeps the ground around the player loaded for the creatures that roam on it.
+  const reach=light?LIGHT_REACH:radius;
   const key=cx+','+cz+','+radius+','+save.quality+','+renderer.software+','+(landmark?'hero':'walk');
   if(key!==meshKey){
-    meshKey=key;meshView=world.select(cx,cz,radius,x,z,landmark);meshRevision=-1;meshRetryAt=now+1500;
+    meshKey=key;meshView=world.select(cx,cz,reach,x,z,landmark);meshRevision=-1;meshRetryAt=now+1500;
   }else if(now>=meshRetryAt){
     world.refresh(meshView);meshRetryAt=now+1500;
     if(!hasMeshes)toast('地形データを再読み込みしています');
   }
   if(meshRevision!==world.revision){
-    const batches=world.batches(meshView);
-    renderer.load(batches,renderer.software?139:save.quality==='low'?152:227,radius);
+    let batches=world.batches(meshView);
+    if(light)batches=batches.filter(batch=>distanceToBounds(batch.bounds,x,z)<=(radius+grid)**2);
+    renderer.load(batches,renderer.software?139:light?radius:227,radius);
     hasMeshes=batches.length>0;meshRevision=world.revision;
   }
 }
@@ -266,7 +352,7 @@ function stopMotion(){
   wasMoving=false;
 }
 function releaseControls(){
-  stopMotion();keys.clear();moveTime=0;
+  stopMotion();keys.clear();moveTime=0;trigger=false;
   const lookId=lookPointer?.id,moveId=movePointer?.id;
   lookPointer=null;movePointer=null;move=[0,0];stick.style.transform='';
   if(lookId!==undefined&&look.hasPointerCapture(lookId))look.releasePointerCapture(lookId);
@@ -398,7 +484,7 @@ function updateTransport(){
   if(runButton.textContent!==runLabel)runButton.textContent=runLabel;
   runButton.hidden=Boolean(motion.train?.boardedAt);
   const hint=motion.vehicle?'W・S 加速・後退 · A・D ハンドル · Shift ブレーキ':
-    motion.train?.boardedAt?'ドラッグで車窓を見る':'WASD 移動 · ドラッグ 視点';
+    motion.train?.boardedAt?'ドラッグで車窓を見る':'WASD 移動 · ドラッグ 視点 · F / クリック 射撃 · R リロード';
   if($('controlHint').textContent!==hint)$('controlHint').textContent=hint;
 }
 
@@ -544,7 +630,11 @@ function applySnapshot(data){
   if(!data.player)return;
   if(Number.isFinite(data.clock))serverClock=data.clock-Date.now();
   confirmed={...data.player};cloudStarted=data.started===true;
-  if(data.op==='ready')lastEvent=data.mission?.event?.id??0;
+  if(data.op==='ready'){
+    lastEvent=data.mission?.event?.id??0;
+    // Shots and hits from before this connection are not replayed.
+    seenShots=data.mission?.gun?.shots??0;seenHits=data.mission?.gun?.hitSeq??0;
+  }
   acceptMission(data.mission,performance.now());
   if(data.op==='ready'){
     highestAck=0;outstanding=[];unsent=[];wasMoving=false;
@@ -714,6 +804,10 @@ function pollGamepad(dt){
   if(edge(1)&&usable)void useTransport('vehicle');
   if(edge(2)&&usable)void useTransport($('transportBtn').hidden?null:$('transportBtn').dataset.action);
   if(edge(9)){if(panel.open)panel.close();else if(active)openPanel();else void begin();}
+  // RT fires (held, it repeats like the mouse button) and Y reloads.
+  const fire=usable&&pressed(7);
+  if(fire!==padFire){padFire=fire;trigger=fire;if(fire){sound.unlock();pullTrigger(performance.now());}}
+  if(edge(3)&&usable){sound.unlock();startReload();}
 }
 // The player's own body is drawn only into the shadow map, so a shadow walks along with them.
 let bodyPhase=0,bodyTime=null;
@@ -777,7 +871,8 @@ function frame(now){
     return;
   }
   if(!startTime)startTime=now;
-  const target=renderer.software?1000/30:1000/60;
+  const lightMode=save.quality==='low'&&!renderer.software;
+  const target=renderer.software?1000/30:lightMode?1000/LIGHT_FPS:1000/60;
   if(now+1<nextFrame)return;
   nextFrame=Math.max(nextFrame+target,now+target*.35);
   const interval=frameTime?now-frameTime:target;
@@ -819,6 +914,8 @@ function frame(now){
         else flightStart=null;
       }
     }
+    if(trigger)pullTrigger(now);
+    kick*=Math.exp(-dt*17);
     if(now-hudTime>95){
       hudTime=now;updateTransport();compass();missionHud(missionView,now);
     }
@@ -842,7 +939,8 @@ function frame(now){
     if(now>=nextWalker){
       const underground=active&&motion.station;
       const focus=active?{x:motion.x,y:motion.y+PLAYER_HEIGHT,z:motion.z,radius:motion.vehicle?2.7:motion.train?.boardedAt?0:1.5}:null;
-      walkers=underground?{}:peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround,renderer.detailedActors===true,focus);
+      walkers=underground?{}:peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround,renderer.detailedActors===true,
+        focus,lightMode?LIGHT_RADIUS+6:155);
       if(active&&motion.vehicle){
         const s=Math.sin(motion.yaw),c=Math.cos(motion.yaw),t=motion.y;
         const a=terrain.support(motion.x+s*1.5,motion.z-c*1.5,t)??t;
@@ -852,15 +950,30 @@ function frame(now){
       if(active&&walkers.detailed&&!motion.vehicle&&!motion.station&&!motion.train?.boardedAt)playerShadow(walkers,now);
       if(state)drawTrain(walkers,state);
       if(flight)drawPlane(walkers,flight);
-      if(!underground)drawMission(walkers,active?visual:{phase:'books',lift:0},eye,elapsed,renderer.software||save.quality==='low',visualGround);
-      if(!underground&&!renderer.software)drawBirds(walkers,eye,animationEpoch+now/1000,visualGround);
+      if(!underground)drawMission(walkers,active?visual:{phase:'books',lift:0},eye,elapsed,renderer.software||save.quality==='low',visualGround,lightMode);
+      if(!underground&&!renderer.software&&!lightMode)drawBirds(walkers,eye,animationEpoch+now/1000,visualGround);
       if(!underground&&Math.hypot(eye[0]-airport.x,eye[2]-airport.z)<325)
         for(const x of [851,902,971])drawPlane(walkers,{x,y:airport.elevation,z:2023,yaw:.18},'d6ddd7');
       nextWalker=now+1000/30-1;
     }
     const light=active&&motion.station?undergroundLight:cityLighting(now,eye[0],eye[2]),signal=signalAt(animationEpoch+now/1000);
+    // The pistol follows the camera every frame, so it never lags behind a turn of the head.
+    let inHand=null;
+    const gun=missionView.gun;
+    if(gun&&active&&!renderer.software&&!motion.vehicle&&!motion.station&&!missionTerminal(missionView.phase)){
+      inHand={};
+      const left=gun.reloading>0?Math.max(0,gun.reloading-(journey.connected?now-viewSince:0)):0;
+      const pace=Math.min(1,Math.hypot(motion.vx,motion.vz)/9);
+      const ahead=[Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)];
+      const cramped=sight.blocked(eye,eye.map((n,i)=>n+ahead[i]*.68))===true;
+      retract+=((cramped?1:0)-retract)*(1-Math.exp(-dt*13));
+      drawHeldGun(inHand,eye,yaw,pitch,{kick,retract,reload:left>0?clamp(1-left/RD2.reloadMs,0,1):0,
+        flash:now<flashUntil?(flashUntil-now)/60:0,muzzleHeat:now-lastShotAt<900?1:0,
+        sway:reduceMotion.matches?[0,0]:[Math.cos(phase)*.0035*pace,-Math.abs(Math.sin(phase))*.004*pace],
+        lowered:pace>.95&&now-lastShotAt>600?.022:0});
+    }
     const options=viewOptions(visual,active?steadyEye:eye,dt);
-    const rendered=renderer.render(eye,goal,light,elapsed,walkers,arrivalBatch,signal,options);
+    const rendered=renderer.render(eye,goal,light,elapsed,walkers,arrivalBatch,signal,inHand,options);
     listen(visual,eye,options.speed,flight,state);
     if(arrivalReady&&rendered)finishArrival();
   }
@@ -882,10 +995,11 @@ function settings(){
   return settingRows.filter(row=>!row.desktop||desktop).map(row=>'<div class="setting"><div><b>'+row.title+'</b><p>'+row.text+
     '</p></div><select id="setting-'+row.key+'" aria-label="'+row.title+'">'+
     row.options.map(([,label],i)=>'<option value="'+i+'">'+label+'</option>').join('')+'</select></div>').join('')+
-  '<div class="setting"><div><b>全画面表示</b><p>端末が対応していれば横画面に切り替わります。Fキーでも切り替えられます。</p></div><button id="fullBtn">'+(document.fullscreenElement?'全画面を終了':'全画面にする')+'</button></div>'+
-  '<div class="setting"><div><b>操作</b><p>PCはWASDで移動・運転、Vで乗降、Eで地下鉄などの操作、Escで設定を開きます。運転中はShiftでブレーキ。'+
-  'ゲームパッドは左スティックで移動、右スティックで視点、Aで走る・ブレーキ、Bで乗降、Xで地下鉄などの操作、スタートで設定です。'+
-  'スマホでは左のスティックと画面内のボタンを使えます。</p></div></div>';
+  '<div class="setting"><div><b>全画面表示</b><p>端末が対応していれば横画面に切り替わります。</p></div><button id="fullBtn">'+(document.fullscreenElement?'全画面を終了':'全画面にする')+'</button></div>'+
+  '<div class="setting"><div><b>操作</b><p>PCはWASDで移動・運転、Vで乗降、Eで地下鉄などの操作、Escで設定を開きます。運転中はShiftでブレーキ。F・スペース・クリック・右ボタンで射撃、Rでリロード。'+
+  'ゲームパッドは左スティックで移動、右スティックで視点、Aで走る・ブレーキ、Bで乗降、Xで地下鉄などの操作、RTで射撃、Yでリロード、スタートで設定です。'+
+  'スマホでは左のスティックと画面内のボタンを使えます。</p></div></div>'+
+  '<div class="setting"><div><b>拳銃 RD II</b><p>三連装・9 mm。引き金1回で3発を同時に発射します。初速 '+RD2.muzzleVelocity+' m/s、空気抵抗による減速は銃口で約 '+Math.round(muzzleDeceleration)+' m/s²、重力 '+RD2.gravity.toFixed(2)+' m/s²。装填 '+RD2.magazine+' 発、初期所持 '+RD2.startingRounds+' 発。弾薬箱1個で '+RD2.pickupRounds+' 発。'+RD2.stunHits+' 発命中で敵は3分間気絶します。</p></div></div>';
 }
 function syncSettings(){
   for(const row of settingRows){
@@ -941,7 +1055,7 @@ panel.addEventListener('click',e=>{
   const b=panel.getBoundingClientRect();
   if(e.clientX<b.left||e.clientX>b.right||e.clientY<b.top||e.clientY>b.bottom)panel.close();
 });
-$('start').onclick=begin;
+$('start').onclick=()=>{sound.unlock();return begin();};
 $('restart').onclick=restart;
 $('homeBtn').onclick=()=>{if(active&&!travelling){writeCheckpoint();changeActive(false);}};
 $('retry').onclick=()=>location.reload();
@@ -949,7 +1063,8 @@ $('cloudRetry').onclick=()=>location.reload();
 $('vehicleBtn').onclick=()=>void useTransport('vehicle');
 $('transportBtn').onclick=()=>void useTransport($('transportBtn').dataset.action);
 $('surfaceBtn').onclick=()=>void useTransport('metro-exit');
-const controlKeys=['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight','KeyV'];
+const controlKeys=['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight','KeyV','KeyF','Space','KeyR'];
+const fireKeys=new Set(['KeyF','Space']);
 function eventClock(event){
   const now=performance.now();
   return event.timeStamp>0?Math.min(event.timeStamp,now):now;
@@ -967,12 +1082,15 @@ window.addEventListener('keydown',e=>{
   e.preventDefault();
   if(e.repeat)return;
   if(e.code==='KeyV'){void useTransport('vehicle');return;}
+  if(e.code==='KeyR'){sound.unlock();startReload();return;}
+  if(fireKeys.has(e.code)){sound.unlock();trigger=true;pullTrigger(eventClock(e));keys.add(e.code);return;}
   if(canMove()&&!missionTerminal(missionView.phase)){
     advanceMotion(eventClock(e));keys.add(e.code);
   }
 });
 window.addEventListener('keyup',e=>{
   if(!keys.has(e.code))return;
+  if(fireKeys.has(e.code)){keys.delete(e.code);trigger=[...fireKeys].some(code=>keys.has(code));return;}
   advanceMotion(eventClock(e));keys.delete(e.code);
   if(e.code==='ArrowLeft'||e.code==='ArrowRight')finishLook();
 });
@@ -1004,19 +1122,30 @@ function rotateView(dx,dy,gain){
   pitch=clampPitch(pitch-dy*gain*(save.invertY?-1:1));
 }
 let lockReleasedAt=-Infinity;
+look.addEventListener('contextmenu',e=>e.preventDefault());
+// The right button is the trigger; it can be held while the left button turns the view.
+look.addEventListener('mousedown',e=>{
+  if(e.button!==2||!renderer||!active||!canMove()||panel.open||travelling)return;
+  sound.unlock();trigger=true;pullTrigger(eventClock(e));
+});
+window.addEventListener('mouseup',e=>{if(e.button===2)trigger=false;});
 look.addEventListener('pointerdown',e=>{
-  audio.unlock();
-  if(!renderer||!active||!canMove()||panel.open||travelling||lookPointer||e.button!==0)return;
-  // With "mouse look" on, a click captures the cursor and plain mouse movement turns the view.
+  if(!renderer||!active||!canMove()||panel.open||travelling)return;
+  sound.unlock();audio.unlock();
+  if(lookPointer||e.button!==0)return;
+  // With "mouse look" on, a click captures the cursor; once it is captured, clicks fire.
   if(save.mouseLock&&e.pointerType==='mouse'&&look.requestPointerLock){
-    if(document.pointerLockElement!==look)try{look.requestPointerLock()?.catch?.(()=>{});}catch{}
+    if(document.pointerLockElement!==look){try{look.requestPointerLock()?.catch?.(()=>{});}catch{}}
+    else pullTrigger(eventClock(e));
     return;
   }
-  lookPointer={id:e.pointerId,x:e.clientX,y:e.clientY};look.setPointerCapture(e.pointerId);
+  lookPointer={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,at:eventClock(e),moved:0};look.setPointerCapture(e.pointerId);
 });
+
 look.addEventListener('pointermove',e=>{
   if(lookPointer?.id!==e.pointerId)return;
   rotateView(e.clientX-lookPointer.x,e.clientY-lookPointer.y,.0046*save.sensitivity);
+  lookPointer.moved=Math.max(lookPointer.moved,Math.hypot(e.clientX-lookPointer.startX,e.clientY-lookPointer.startY));
   lookPointer.x=e.clientX;lookPointer.y=e.clientY;
 });
 document.addEventListener('mousemove',e=>{
@@ -1029,13 +1158,12 @@ document.addEventListener('pointerlockchange',()=>{
 });
 // Long presses and right clicks on the game view do not open the browser's menu.
 stage.addEventListener('contextmenu',e=>{if(active&&!panel.open)e.preventDefault();});
-// Shortcuts: F full screen, M mute, E the transport button, Escape the settings.
+// Shortcuts: M mute, E the transport button, Escape the settings (F and Space fire the pistol).
 let unmutedVolume=save.volume||.7;
 window.addEventListener('keydown',e=>{
   if(e.ctrlKey||e.metaKey||e.altKey)return;
   audio.unlock();
   if(e.repeat||!renderer||e.target instanceof HTMLSelectElement)return;
-  if(e.code==='KeyF'&&!panel.open){e.preventDefault();void toggleFullscreen();return;}
   if(e.code==='KeyM'){
     e.preventDefault();
     if(save.volume)unmutedVolume=save.volume;
@@ -1055,7 +1183,11 @@ window.addEventListener('keydown',e=>{
   }
 });
 for(const event of ['pointerup','pointercancel','lostpointercapture'])look.addEventListener(event,e=>{
-  if(lookPointer?.id===e.pointerId){lookPointer=null;finishLook();}
+  if(lookPointer?.id!==e.pointerId)return;
+  // A click or tap that did not turn the view fires one salvo.
+  const tap=event==='pointerup'&&lookPointer.moved<7&&eventClock(e)-lookPointer.at<260;
+  lookPointer=null;finishLook();
+  if(tap)pullTrigger(eventClock(e));
 });
 function moveStick(e){
   const {x,y,range}=movePointer,dx=e.clientX-x,dy=e.clientY-y,distance=Math.hypot(dx,dy);
@@ -1080,6 +1212,14 @@ for(const event of ['pointerup','pointercancel','lostpointercapture'])joystick.a
   movePointer=null;move=[0,0];stick.style.transform='';
 });
 runButton.onclick=()=>{advanceMotion(performance.now());if(renderer&&canMove())setRunning(!running);};
+const fireButton=$('fireBtn');
+fireButton.addEventListener('pointerdown',e=>{
+  if(e.button!==0)return;
+  e.preventDefault();sound.unlock();fireButton.setPointerCapture(e.pointerId);
+  trigger=true;pullTrigger(eventClock(e));
+});
+for(const event of ['pointerup','pointercancel','lostpointercapture'])fireButton.addEventListener(event,()=>{trigger=false;});
+$('reloadBtn').onclick=()=>{sound.unlock();startReload();};
 function useRenderer(canvas,next){
   if(scene!==canvas)scene.replaceWith(canvas);
   scene=canvas;renderer=next;
