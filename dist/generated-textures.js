@@ -6,7 +6,8 @@ export const PHOTO_TABLE_WIDTH=256,PHOTO_TABLE_ROWS=4,PHOTO_MATERIALS=64,PHOTO_V
 export const ART_COLUMN=64,ART_GROUPS=4,RUG_COLUMN=68,CURTAIN_COLUMN=69,BLINDS_COLUMN=70;
 // Special places (catalog "uses", or an "art" kind) and, from column 128, the surfaces of furnished
 // rooms by material id (catalog "rooms").
-export const PLACE_COLUMNS={rug:68,curtain:69,blinds:70,bark:71,ceiling:72,'office-floor':73,tactile:74,curb:75,'flat-roof':76,platform:77};
+export const PLACE_COLUMNS={rug:68,curtain:69,blinds:70,bark:71,ceiling:72,'office-floor':73,tactile:74,curb:75,'flat-roof':76,platform:77,
+  'tower-red':78,'tower-white':79,'vermilion':80,'warning':81,'rust-concrete':82,'track':83,'tunnel-lining':84,'runway':85,'runway-marks':86,'pole':87,'guardrail':88,'manhole':89,'train-body':90,'train-seat':91,'car-paint':92,'tire':93,'car-seat':94,'car-trim':95,'chrome':96,'headlight':97,'fabric-top':98,'fabric-bottom':99,'shoe':100,'skin':101,'hair':102,'glass-distant':103,'frosted':104,'smoke':105,'fire':106,'dust':107,'sparks':108,'ripples':109};
 export const ROOM_COLUMN=128;
 const LAST_COLUMN=ROOM_COLUMN+PHOTO_MATERIALS-1;
 

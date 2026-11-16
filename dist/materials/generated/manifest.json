@@ -2033,6 +2033,748 @@
      ]
     }
    ]
+  },
+  {
+   "id": "people",
+   "file": "people.webp",
+   "slots": [
+    {
+     "id": "denim",
+     "materials": [],
+     "meters": 0.07,
+     "tint": 0.45,
+     "roughness": 0.85,
+     "relief": 0.001,
+     "uses": [
+      "fabric-bottom"
+     ],
+     "luma": 0.0631,
+     "size": [
+      0.069,
+      0.067
+     ]
+    },
+    {
+     "id": "cotton-tee",
+     "materials": [],
+     "meters": 0.08,
+     "tint": 1,
+     "roughness": 0.85,
+     "relief": 0.0008,
+     "uses": [
+      "fabric-top"
+     ],
+     "luma": 0.75,
+     "size": [
+      0.076,
+      0.077
+     ]
+    },
+    {
+     "id": "wool-suit",
+     "materials": [],
+     "meters": 0.09,
+     "tint": 1,
+     "roughness": 0.8,
+     "relief": 0.001,
+     "uses": [
+      "fabric-top",
+      "fabric-bottom"
+     ],
+     "luma": 0.0296,
+     "size": [
+      0.087,
+      0.088
+     ]
+    },
+    {
+     "id": "knit-sweater",
+     "materials": [],
+     "meters": 0.12,
+     "tint": 1,
+     "roughness": 0.9,
+     "relief": 0.002,
+     "uses": [
+      "fabric-top"
+     ],
+     "luma": 0.5826,
+     "size": [
+      0.106,
+      0.117
+     ]
+    },
+    {
+     "id": "nylon-jacket",
+     "materials": [],
+     "meters": 0.25,
+     "tint": 0.85,
+     "roughness": 0.45,
+     "relief": 0.002,
+     "uses": [
+      "fabric-top"
+     ],
+     "luma": 0.0354,
+     "size": [
+      0.25,
+      0.25
+     ]
+    },
+    {
+     "id": "shoe-leather",
+     "materials": [],
+     "meters": 0.12,
+     "tint": 0.6,
+     "roughness": 0.4,
+     "relief": 0.001,
+     "uses": [
+      "shoe"
+     ],
+     "luma": 0.024,
+     "size": [
+      0.113,
+      0.117
+     ]
+    },
+    {
+     "id": "sneaker-mesh",
+     "materials": [],
+     "meters": 0.06,
+     "tint": 1,
+     "roughness": 0.8,
+     "relief": 0.001,
+     "uses": [
+      "shoe"
+     ],
+     "luma": 0.5791,
+     "size": [
+      0.057,
+      0.056
+     ]
+    },
+    {
+     "id": "skin-pores",
+     "materials": [],
+     "meters": 0.05,
+     "tint": 1,
+     "roughness": 0.5,
+     "relief": 0.0005,
+     "uses": [
+      "skin"
+     ],
+     "luma": 0.4503,
+     "size": [
+      0.048,
+      0.048
+     ]
+    },
+    {
+     "id": "black-hair",
+     "materials": [],
+     "meters": 0.12,
+     "tint": 1,
+     "roughness": 0.45,
+     "relief": 0.001,
+     "uses": [
+      "hair"
+     ],
+     "luma": 0.0172,
+     "size": [
+      0.115,
+      0.12
+     ]
+    }
+   ]
+  },
+  {
+   "id": "vehicles",
+   "file": "vehicles.webp",
+   "slots": [
+    {
+     "id": "metallic-paint",
+     "materials": [],
+     "meters": 0.25,
+     "tint": 1,
+     "roughness": 0.35,
+     "relief": 0.0003,
+     "uses": [
+      "car-paint"
+     ],
+     "luma": 0.0845,
+     "size": [
+      0.244,
+      0.25
+     ]
+    },
+    {
+     "id": "tire-tread",
+     "materials": [],
+     "meters": 0.35,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.006,
+     "uses": [
+      "tire"
+     ],
+     "luma": 0.0391,
+     "size": [
+      0.35,
+      0.296
+     ]
+    },
+    {
+     "id": "car-seat",
+     "materials": [],
+     "meters": 0.2,
+     "tint": 0.3,
+     "roughness": 0.9,
+     "relief": 0.001,
+     "uses": [
+      "car-seat",
+      "train-seat"
+     ],
+     "luma": 0.0458,
+     "size": [
+      0.186,
+      0.187
+     ]
+    },
+    {
+     "id": "dashboard",
+     "materials": [],
+     "meters": 0.25,
+     "tint": 0.3,
+     "roughness": 0.6,
+     "relief": 0.001,
+     "uses": [
+      "car-trim"
+     ],
+     "luma": 0.032,
+     "size": [
+      0.25,
+      0.25
+     ]
+    },
+    {
+     "id": "chrome",
+     "materials": [],
+     "meters": 0.6,
+     "tint": 0,
+     "roughness": 0.08,
+     "relief": 0,
+     "art": "chrome",
+     "uses": [
+      "chrome"
+     ],
+     "luma": 0.4031,
+     "size": [
+      0.6,
+      0.6
+     ]
+    },
+    {
+     "id": "headlight-lens",
+     "materials": [],
+     "meters": 0.3,
+     "tint": 0,
+     "roughness": 0.1,
+     "relief": 0.001,
+     "art": "headlight",
+     "uses": [
+      "headlight"
+     ],
+     "luma": 0.3445,
+     "size": [
+      0.3,
+      0.3
+     ]
+    },
+    {
+     "id": "train-stainless",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.3,
+     "roughness": 0.35,
+     "relief": 0.004,
+     "uses": [
+      "train-body"
+     ],
+     "luma": 0.3922,
+     "size": [
+      1.2,
+      0.651
+     ]
+    },
+    {
+     "id": "aircraft-skin",
+     "materials": [
+      34
+     ],
+     "meters": 2.0,
+     "tint": 0.5,
+     "roughness": 0.4,
+     "relief": 0.002,
+     "luma": 0.5469,
+     "size": [
+      1.826,
+      1.953
+     ]
+    },
+    {
+     "id": "moquette",
+     "materials": [],
+     "meters": 0.35,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.001,
+     "uses": [
+      "train-seat"
+     ],
+     "luma": 0.0509,
+     "size": [
+      0.35,
+      0.35
+     ]
+    }
+   ]
+  },
+  {
+   "id": "landmarks",
+   "file": "landmarks.webp",
+   "slots": [
+    {
+     "id": "tower-red",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.25,
+     "roughness": 0.55,
+     "relief": 0.01,
+     "uses": [
+      "tower-red"
+     ],
+     "luma": 0.1149,
+     "size": [
+      2.4,
+      2.4
+     ]
+    },
+    {
+     "id": "tower-white",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.25,
+     "roughness": 0.55,
+     "relief": 0.01,
+     "uses": [
+      "tower-white"
+     ],
+     "luma": 0.4527,
+     "size": [
+      2.4,
+      2.4
+     ]
+    },
+    {
+     "id": "vermilion",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.2,
+     "roughness": 0.45,
+     "relief": 0.003,
+     "uses": [
+      "vermilion"
+     ],
+     "luma": 0.2029,
+     "size": [
+      1.2,
+      1.102
+     ]
+    },
+    {
+     "id": "burnt-nozzle",
+     "materials": [
+      54
+     ],
+     "meters": 2.0,
+     "tint": 0.3,
+     "roughness": 0.4,
+     "relief": 0.006,
+     "luma": 0.1132,
+     "size": [
+      2.0,
+      1.574
+     ]
+    },
+    {
+     "id": "missile-panels",
+     "materials": [
+      55
+     ],
+     "meters": 1.8,
+     "tint": 0.4,
+     "roughness": 0.5,
+     "relief": 0.004,
+     "luma": 0.6168,
+     "size": [
+      1.738,
+      1.426
+     ]
+    },
+    {
+     "id": "warning-stripes",
+     "materials": [],
+     "meters": 1.0,
+     "tint": 0.1,
+     "roughness": 0.6,
+     "relief": 0.002,
+     "uses": [
+      "warning"
+     ],
+     "luma": 0.2595,
+     "size": [
+      0.874,
+      0.495
+     ]
+    },
+    {
+     "id": "rust-concrete",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.3,
+     "roughness": 0.85,
+     "relief": 0.006,
+     "uses": [
+      "rust-concrete"
+     ],
+     "luma": 0.2653,
+     "size": [
+      1.787,
+      2.4
+     ]
+    },
+    {
+     "id": "scorched-ground",
+     "materials": [
+      58
+     ],
+     "meters": 2.0,
+     "tint": 0.25,
+     "roughness": 0.95,
+     "relief": 0.008,
+     "luma": 0.069,
+     "size": [
+      2.0,
+      2.0
+     ]
+    },
+    {
+     "id": "bolted-plate",
+     "materials": [
+      55
+     ],
+     "meters": 1.4,
+     "tint": 0.35,
+     "roughness": 0.55,
+     "relief": 0.008,
+     "luma": 0.0948,
+     "size": [
+      1.367,
+      1.4
+     ]
+    }
+   ]
+  },
+  {
+   "id": "rail-street",
+   "file": "rail-street.webp",
+   "slots": [
+    {
+     "id": "wood-track",
+     "materials": [],
+     "meters": 2.2,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.012,
+     "uses": [
+      "track"
+     ],
+     "luma": 0.116,
+     "size": [
+      2.2,
+      1.719
+     ]
+    },
+    {
+     "id": "concrete-track",
+     "materials": [],
+     "meters": 2.2,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.012,
+     "uses": [
+      "track"
+     ],
+     "luma": 0.2265,
+     "size": [
+      2.148,
+      1.719
+     ]
+    },
+    {
+     "id": "tunnel-segments",
+     "materials": [],
+     "meters": 3.0,
+     "tint": 0.3,
+     "roughness": 0.8,
+     "relief": 0.006,
+     "uses": [
+      "tunnel-lining"
+     ],
+     "luma": 0.2324,
+     "size": [
+      2.961,
+      3.0
+     ]
+    },
+    {
+     "id": "runway",
+     "materials": [],
+     "meters": 6.0,
+     "tint": 0.3,
+     "roughness": 0.8,
+     "relief": 0.003,
+     "uses": [
+      "runway"
+     ],
+     "luma": 0.4101,
+     "size": [
+      6.0,
+      6.0
+     ]
+    },
+    {
+     "id": "runway-marks",
+     "materials": [],
+     "meters": 6.0,
+     "tint": 0.3,
+     "roughness": 0.8,
+     "relief": 0.003,
+     "uses": [
+      "runway-marks"
+     ],
+     "luma": 0.2795,
+     "size": [
+      6.0,
+      6.0
+     ]
+    },
+    {
+     "id": "subway-tiles",
+     "materials": [
+      44,
+      49
+     ],
+     "meters": 0.9,
+     "tint": 0.3,
+     "roughness": 0.25,
+     "relief": 0.002,
+     "luma": 0.5929,
+     "size": [
+      0.748,
+      0.791
+     ]
+    },
+    {
+     "id": "galvanized-pole",
+     "materials": [],
+     "meters": 0.8,
+     "tint": 0.3,
+     "roughness": 0.45,
+     "relief": 0.001,
+     "uses": [
+      "pole"
+     ],
+     "luma": 0.3608,
+     "size": [
+      0.8,
+      0.775
+     ]
+    },
+    {
+     "id": "guardrail",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.3,
+     "roughness": 0.45,
+     "relief": 0.008,
+     "uses": [
+      "guardrail"
+     ],
+     "luma": 0.3072,
+     "size": [
+      1.061,
+      0.673
+     ]
+    },
+    {
+     "id": "manhole",
+     "materials": [],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.6,
+     "relief": 0.006,
+     "art": "manhole",
+     "luma": 0.1039,
+     "size": [
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "glass-effects",
+   "file": "glass-effects.webp",
+   "slots": [
+    {
+     "id": "mirror-glass",
+     "materials": [],
+     "meters": 12.0,
+     "tint": 0,
+     "roughness": 0.05,
+     "relief": 0,
+     "art": "glass-distant",
+     "luma": 0.0751,
+     "size": [
+      12.0,
+      12.0
+     ]
+    },
+    {
+     "id": "frosted-glass",
+     "materials": [],
+     "meters": 0.8,
+     "tint": 0,
+     "roughness": 0.3,
+     "relief": 0.001,
+     "uses": [
+      "frosted"
+     ],
+     "luma": 0.2968,
+     "size": [
+      0.44,
+      0.8
+     ]
+    },
+    {
+     "id": "glass-block",
+     "materials": [
+      44
+     ],
+     "meters": 0.6,
+     "tint": 0.2,
+     "roughness": 0.1,
+     "relief": 0.004,
+     "luma": 0.2928,
+     "size": [
+      0.6,
+      0.433
+     ]
+    },
+    {
+     "id": "smoke",
+     "materials": [],
+     "meters": 4.0,
+     "tint": 1,
+     "roughness": 0.9,
+     "relief": 0,
+     "uses": [
+      "smoke"
+     ],
+     "luma": 0.0568,
+     "size": [
+      4.0,
+      4.0
+     ]
+    },
+    {
+     "id": "flames",
+     "materials": [],
+     "meters": 3.0,
+     "tint": 0,
+     "roughness": 0.9,
+     "relief": 0,
+     "uses": [
+      "fire"
+     ],
+     "luma": 0.1331,
+     "size": [
+      3.0,
+      3.0
+     ]
+    },
+    {
+     "id": "dust-cloud",
+     "materials": [],
+     "meters": 4.0,
+     "tint": 1,
+     "roughness": 0.9,
+     "relief": 0,
+     "uses": [
+      "dust"
+     ],
+     "luma": 0.1154,
+     "size": [
+      4.0,
+      4.0
+     ]
+    },
+    {
+     "id": "sparks",
+     "materials": [],
+     "meters": 2.0,
+     "tint": 0,
+     "roughness": 0.9,
+     "relief": 0,
+     "uses": [
+      "sparks"
+     ],
+     "luma": 0.0082,
+     "size": [
+      2.0,
+      2.0
+     ]
+    },
+    {
+     "id": "cumulus",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "luma": 0.3984,
+     "size": [
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "ripples",
+     "materials": [],
+     "meters": 2.5,
+     "tint": 0,
+     "roughness": 0.1,
+     "relief": 0,
+     "uses": [
+      "ripples"
+     ],
+     "luma": 0.141,
+     "size": [
+      2.5,
+      2.5
+     ]
+    }
+   ]
   }
  ]
 }

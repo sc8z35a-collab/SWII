@@ -22,7 +22,7 @@ const humanVertex=`#version 300 es
 precision highp float;
 precision highp int;
 ${instanceInputs}
-out vec3 wPos,wNormal,vBind;
+out vec3 wPos,wNormal,vBind,vBindNormal;
 flat out vec3 vSkin,vHair,vTop,vBottom,vShoes;
 flat out float vStyle,vSeed;
 out vec4 vParts;
@@ -45,7 +45,7 @@ void main(){
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward);
   wPos=aCenter+orient*p*scale;
   wNormal=normalize(orient*n);
-  vBind=aPosition;
+  vBind=aPosition;vBindNormal=aNormal;
   vSkin=unpackColor(aZ.y);vHair=unpackColor(aZ.z);
   vTop=unpackColor(aStyle.x);vBottom=unpackColor(aStyle.y);vShoes=unpackColor(aStyle.z);
   vStyle=aStyle.w;vSeed=seed;
@@ -59,7 +59,7 @@ precision highp float;
 precision highp int;
 precision highp sampler2D;
 precision highp sampler2DShadow;
-in vec3 wPos,wNormal,vBind;
+in vec3 wPos,wNormal,vBind,vBindNormal;
 flat in vec3 vSkin,vHair,vTop,vBottom,vShoes;
 flat in float vStyle,vSeed;
 in vec4 vParts;
@@ -68,6 +68,8 @@ ${glslLighting}
 vec3 lin(vec3 c){return pow(c,vec3(2.2));}
 float spot(vec2 p,vec2 c,vec2 r){vec2 q=(p-c)/r;return 1.-smoothstep(.6,1.,dot(q,q));}
 float line(float x,float w){return 1.-smoothstep(w*.5,w,abs(x));}
+// Cloth and skin coordinates in meters on the body: front and back faces take x, the sides z.
+vec2 bodyMeters(vec3 b){return vec2(abs(vBindNormal.x)>.7?b.z:b.x,-b.y);}
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
   beginShading(wPos,n);
@@ -113,6 +115,7 @@ void main(){
     if(pale)albedo=mix(albedo,vec3(.32,.33,.34),.55);
     rough=.5;f0=.028;translucency=.1;
     albedo*=.94+.08*noise(b.xy*90.+vSeed*10.);
+    albedo=photoDetail(101,.5,bodyMeters(b)+vSeed*3.,albedo,.45);
     if(b.y>1.55&&b.z>.02){
       vec2 f=vec2(ax,b.y);
       float socket=spot(f,vec2(.031,1.664),vec2(.024,.016));
@@ -140,6 +143,10 @@ void main(){
     rough=.82;sheen=.6;
     float weave=noise(b.xy*vec2(700.,520.)+b.z*300.)*fine;
     albedo*=.95+weave*.1;
+    // Fabric photos: cotton, wool, knit or nylon (in that order in the table) by garment.
+    float cloth=part==3||jacket?(vSeed<.5?.375:.875):shirt?.125:(vSeed<.6?.125:.625);
+    albedo=photoDetail(98,cloth,bodyMeters(b),albedo,.85);
+    if(cloth>.75){rough=.45;sheen=.15;}
     float folds=sin(b.y*70.+sin(b.x*30.+b.z*20.)*2.)*.5+.5;
     ao*=.9+.1*folds;
     if(jacket&&b.z>.03){
@@ -168,6 +175,9 @@ void main(){
   }else if(zone==2){
     albedo=lin(vBottom);
     rough=.88;sheen=.45;
+    // Denim for blue or dark trousers, wool for the rest and for skirts and coats.
+    bool jeans=part==0&&vBottom.b>=vBottom.r*.95;
+    albedo=photoDetail(99,jeans?.25:.75,bodyMeters(b),albedo,.85);
     float twill=noise(vec2(b.x*420.+b.y*420.,b.z*400.))*fine;
     albedo*=.93+twill*.12;
     if(part==0){
@@ -189,6 +199,7 @@ void main(){
   }else if(zone==3){
     albedo=lin(vShoes);
     rough=.42;
+    albedo=photoDetail(100,fract(vSeed*7.3),bodyMeters(b),albedo,.8);
     float sole=1.-smoothstep(.016,.022,b.y);
     albedo=mix(albedo,luminance(albedo)>.2?vec3(.05):vec3(.8,.78,.74),sole);
     rough=mix(rough,.8,sole);
@@ -197,6 +208,7 @@ void main(){
   }else if(zone==4){
     albedo=lin(vHair);
     rough=.5;
+    albedo=photoDetail(102,.5,vec2(atan(b.x,b.z)/6.2831853*5.*.12,-b.y),albedo,.8);
     float strands=noise(vec2(atan(b.x,b.z)*60.,b.y*14.))*.5+noise(vec2(atan(b.x,b.z)*160.,b.y*30.))*.5;
     albedo*=.75+.5*strands;
     ao*=.75+.25*strands;
@@ -230,7 +242,7 @@ const carVertex=`#version 300 es
 precision highp float;
 precision highp int;
 ${instanceInputs}
-out vec3 wPos,wNormal,vBind;
+out vec3 wPos,wNormal,vBind,vBindNormal;
 out float vGlass;
 flat out vec3 vPaint;
 flat out float vFlags,vPart;
@@ -246,13 +258,13 @@ void main(){
     mat3 r=rotX(spin);
     if(p.z>0.)r=rotY(steer)*r;
     p=c+r*(p-c);n=r*n;
-    vBind=c+rotX(spin)*(aPosition-c);
+    vBind=c+rotX(spin)*(aPosition-c);vBindNormal=rotX(spin)*aNormal;
   }else{
     // The body rides on its springs: it pitches and rolls about the axles while the wheels stay down.
     vec3 pivot=vec3(0.,${WHEEL.y.toFixed(3)},0.);
     mat3 r=rotZ(aZ.y)*rotX(-aZ.x);
     p=pivot+r*(p-pivot);n=r*n;
-    vBind=aPosition;
+    vBind=aPosition;vBindNormal=aNormal;
   }
   vec3 forward=vec3(sin(yaw),0.,-cos(yaw)),left=-vec3(cos(yaw),0.,sin(yaw));
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward)*rotX(-pitch);
@@ -268,7 +280,7 @@ precision highp float;
 precision highp int;
 precision highp sampler2D;
 precision highp sampler2DShadow;
-in vec3 wPos,wNormal,vBind;
+in vec3 wPos,wNormal,vBind,vBindNormal;
 in float vGlass;
 flat in vec3 vPaint;
 flat in float vFlags,vPart;
@@ -307,6 +319,8 @@ void main(){
     float r=length(q),a=atan(q.y,q.x);
     float tread=step(.33,r)*step(.5,fract(a*24.));
     albedo*=1.-.35*tread;
+    // Tread photo: exactly six repeats around the tire, so it closes without a seam.
+    albedo=photoDetail(93,.5,vec2(b.x,a/6.2831853*6.*.35),albedo,step(.3,r)*.9);
     float wall=smoothstep(.27,.29,r)*(1.-smoothstep(.3,.32,r));
     albedo+=vec3(.012)*wall;
   }else if(part==2){
@@ -329,6 +343,11 @@ void main(){
       float hex=step(.55,fract(b.x*38.+step(.5,fract(b.y*30.))*.5))*step(.4,fract(b.y*30.));
       albedo=mix(vec3(.02),vec3(.08),hex);metal=.3;rough=.45;coat=0.;ao=.6;
     }
+    // Metallic flakes in the paint, finest close up.
+    vec3 bn=vBindNormal;
+    vec2 panel=abs(bn.x)>.6?b.zy:abs(bn.y)>.6?b.xz:b.xy;
+    albedo=photoDetail(92,.5,panel,albedo,(1.-glass)*.6);
+    if(b.y<.34&&abs(b.z)<2.05)albedo=photoDetail(95,.5,panel,albedo,.8);
     float valance=step(1.98,abs(b.z))*step(b.y,.4);
     albedo=mix(albedo,vec3(.03),valance);coat*=1.-valance;metal*=1.-valance;
     // Road grime: the sills, bumpers and the paint around the wheels are dulled by dust and spray.
@@ -339,6 +358,7 @@ void main(){
     if(head>.5){
       float reflector=smoothstep(.025,.04,length(vec2(fract((ax-.44)/.19)-.5,(b.y-.665)/.065*.5)));
       albedo=mix(vec3(.85),vec3(.55),reflector);metal=.9;rough=.12;coat=1.;
+      albedo=photoDetail(97,.5,vec2((ax-.44)/.38,(b.y-.6)/.13)*.3,albedo,.7);
       emission+=vec3(1.,.96,.9)*step(.62,b.y)*step(b.y,.632)*3.;
     }
     float tail=rear*box2(vec2(ax,b.y),vec2(.36,.72),vec2(.84,.86),.008);
@@ -358,7 +378,7 @@ void main(){
       seams*=step(.34,b.y)*step(b.y,.97);
       ao*=1.-.6*min(seams,1.);
       float handle=box2(vec2(b.z,b.y),vec2(.18,.855),vec2(.34,.885),.004)+box2(vec2(b.z,b.y),vec2(-.82,.855),vec2(-.66,.885),.004);
-      if(handle>.5){albedo=vec3(.7);metal=1.;rough=.2;}
+      if(handle>.5){albedo=photoDetail(96,.5,vec2(b.z,b.y)*.5,vec3(.7),.8);metal=1.;rough=.2;}
     }
     albedo=mix(albedo,vec3(.025),trim);coat*=1.-trim;metal*=1.-trim;
   }
@@ -379,6 +399,7 @@ void main(){
     vec3 h=normalize(v+uSun);
     vec3 glint=uSunColor*D_GGX(max(dot(n,h),0.),.0009)*V_SmithGGX(NoV,NoL,.0009)*F*NoL*shadow;
     vec3 inside=vec3(.004,.0045,.005)*(uAmbUp*8.+uSunColor*.3);
+    inside=photoDetail(94,.5,vec2(b.x,b.y)*1.5,inside,.9);
     color=mix(inside,streetReflection(r,0.),F)+glint;
     share=.3;
   }else{

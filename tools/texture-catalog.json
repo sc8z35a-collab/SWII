@@ -1987,6 +1987,574 @@
      ]
     }
    ]
+  },
+  {
+   "id": "people",
+   "title": "People: clothes, skin and hair",
+   "slots": [
+    {
+     "id": "denim",
+     "materials": [],
+     "meters": 0.07,
+     "tint": 0.45,
+     "roughness": 0.85,
+     "relief": 0.001,
+     "prompt": "blue denim twill weave close-up",
+     "uses": [
+      "fabric-bottom"
+     ]
+    },
+    {
+     "id": "cotton-tee",
+     "materials": [],
+     "meters": 0.08,
+     "tint": 1,
+     "roughness": 0.85,
+     "relief": 0.0008,
+     "prompt": "white cotton jersey knit close-up",
+     "uses": [
+      "fabric-top"
+     ]
+    },
+    {
+     "id": "wool-suit",
+     "materials": [],
+     "meters": 0.09,
+     "tint": 1,
+     "roughness": 0.8,
+     "relief": 0.001,
+     "prompt": "dark grey herringbone wool suiting close-up",
+     "uses": [
+      "fabric-top",
+      "fabric-bottom"
+     ]
+    },
+    {
+     "id": "knit-sweater",
+     "materials": [],
+     "meters": 0.12,
+     "tint": 1,
+     "roughness": 0.9,
+     "relief": 0.002,
+     "prompt": "cream rib knit sweater close-up",
+     "uses": [
+      "fabric-top"
+     ]
+    },
+    {
+     "id": "nylon-jacket",
+     "materials": [],
+     "meters": 0.25,
+     "tint": 0.85,
+     "roughness": 0.45,
+     "relief": 0.002,
+     "prompt": "navy ripstop nylon jacket fabric with soft creases",
+     "uses": [
+      "fabric-top"
+     ]
+    },
+    {
+     "id": "shoe-leather",
+     "materials": [],
+     "meters": 0.12,
+     "tint": 0.6,
+     "roughness": 0.4,
+     "relief": 0.001,
+     "prompt": "black smooth shoe leather close-up",
+     "uses": [
+      "shoe"
+     ]
+    },
+    {
+     "id": "sneaker-mesh",
+     "materials": [],
+     "meters": 0.06,
+     "tint": 1,
+     "roughness": 0.8,
+     "relief": 0.001,
+     "prompt": "white sneaker mesh fabric close-up",
+     "uses": [
+      "shoe"
+     ]
+    },
+    {
+     "id": "skin-pores",
+     "materials": [],
+     "meters": 0.05,
+     "tint": 1,
+     "roughness": 0.5,
+     "relief": 0.0005,
+     "prompt": "close-up of human skin with fine pores",
+     "uses": [
+      "skin"
+     ]
+    },
+    {
+     "id": "black-hair",
+     "materials": [],
+     "meters": 0.12,
+     "tint": 1,
+     "roughness": 0.45,
+     "relief": 0.001,
+     "prompt": "straight black hair strands close-up",
+     "uses": [
+      "hair"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "vehicles",
+   "title": "Cars, trains and aircraft",
+   "slots": [
+    {
+     "id": "metallic-paint",
+     "materials": [],
+     "meters": 0.25,
+     "tint": 1,
+     "roughness": 0.35,
+     "relief": 0.0003,
+     "prompt": "red metallic car paint with fine flakes",
+     "uses": [
+      "car-paint"
+     ],
+     "flatten": 1.0
+    },
+    {
+     "id": "tire-tread",
+     "materials": [],
+     "meters": 0.35,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.006,
+     "prompt": "car tire tread pattern seen straight on",
+     "uses": [
+      "tire"
+     ]
+    },
+    {
+     "id": "car-seat",
+     "materials": [],
+     "meters": 0.2,
+     "tint": 0.3,
+     "roughness": 0.9,
+     "relief": 0.001,
+     "prompt": "dark grey woven car seat fabric",
+     "uses": [
+      "car-seat",
+      "train-seat"
+     ]
+    },
+    {
+     "id": "dashboard",
+     "materials": [],
+     "meters": 0.25,
+     "tint": 0.3,
+     "roughness": 0.6,
+     "relief": 0.001,
+     "prompt": "black pebbled dashboard plastic",
+     "uses": [
+      "car-trim"
+     ]
+    },
+    {
+     "id": "chrome",
+     "materials": [],
+     "meters": 0.6,
+     "tint": 0,
+     "roughness": 0.08,
+     "relief": 0,
+     "prompt": "polished chrome trim reflecting a studio",
+     "uses": [
+      "chrome"
+     ],
+     "art": "chrome"
+    },
+    {
+     "id": "headlight-lens",
+     "materials": [],
+     "meters": 0.3,
+     "tint": 0,
+     "roughness": 0.1,
+     "relief": 0.001,
+     "prompt": "clear fluted headlight lens close-up",
+     "uses": [
+      "headlight"
+     ],
+     "art": "headlight"
+    },
+    {
+     "id": "train-stainless",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.3,
+     "roughness": 0.35,
+     "relief": 0.004,
+     "prompt": "stainless steel train body panel with beads",
+     "uses": [
+      "train-body"
+     ]
+    },
+    {
+     "id": "aircraft-skin",
+     "materials": [
+      34
+     ],
+     "meters": 2.0,
+     "tint": 0.5,
+     "roughness": 0.4,
+     "relief": 0.002,
+     "prompt": "painted aluminum aircraft skin with rivet lines"
+    },
+    {
+     "id": "moquette",
+     "materials": [],
+     "meters": 0.35,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.001,
+     "prompt": "blue patterned moquette train seat fabric",
+     "uses": [
+      "train-seat"
+     ]
+    }
+   ]
+  },
+  {
+   "id": "landmarks",
+   "title": "Tokyo Tower, torii and the launch site",
+   "slots": [
+    {
+     "id": "tower-red",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.25,
+     "roughness": 0.55,
+     "relief": 0.01,
+     "prompt": "red painted riveted steel lattice",
+     "uses": [
+      "tower-red"
+     ]
+    },
+    {
+     "id": "tower-white",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.25,
+     "roughness": 0.55,
+     "relief": 0.01,
+     "prompt": "white painted riveted steel lattice",
+     "uses": [
+      "tower-white"
+     ]
+    },
+    {
+     "id": "vermilion",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.2,
+     "roughness": 0.45,
+     "relief": 0.003,
+     "prompt": "vermilion lacquered wood of a torii gate",
+     "uses": [
+      "vermilion"
+     ]
+    },
+    {
+     "id": "burnt-nozzle",
+     "materials": [
+      54
+     ],
+     "meters": 2.0,
+     "tint": 0.3,
+     "roughness": 0.4,
+     "relief": 0.006,
+     "prompt": "heat-blued burnt steel engine nozzle with rings"
+    },
+    {
+     "id": "missile-panels",
+     "materials": [
+      55
+     ],
+     "meters": 1.8,
+     "tint": 0.4,
+     "roughness": 0.5,
+     "relief": 0.004,
+     "prompt": "white painted riveted rocket body panels"
+    },
+    {
+     "id": "warning-stripes",
+     "materials": [],
+     "meters": 1.0,
+     "tint": 0.1,
+     "roughness": 0.6,
+     "relief": 0.002,
+     "prompt": "worn yellow and black diagonal warning stripes",
+     "uses": [
+      "warning"
+     ]
+    },
+    {
+     "id": "rust-concrete",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.3,
+     "roughness": 0.85,
+     "relief": 0.006,
+     "prompt": "concrete wall with rust streaks from anchor holes",
+     "uses": [
+      "rust-concrete"
+     ]
+    },
+    {
+     "id": "scorched-ground",
+     "materials": [
+      58
+     ],
+     "meters": 2.0,
+     "tint": 0.25,
+     "roughness": 0.95,
+     "relief": 0.008,
+     "prompt": "scorched cracked ground after an explosion"
+    },
+    {
+     "id": "bolted-plate",
+     "materials": [
+      55
+     ],
+     "meters": 1.4,
+     "tint": 0.35,
+     "roughness": 0.55,
+     "relief": 0.008,
+     "prompt": "dark steel plate bolted at its edges"
+    }
+   ]
+  },
+  {
+   "id": "rail-street",
+   "title": "Railway, airport and street furniture",
+   "slots": [
+    {
+     "id": "wood-track",
+     "materials": [],
+     "meters": 2.2,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.012,
+     "prompt": "railway track with wooden sleepers and ballast, top-down",
+     "uses": [
+      "track"
+     ]
+    },
+    {
+     "id": "concrete-track",
+     "materials": [],
+     "meters": 2.2,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.012,
+     "prompt": "concrete sleepers on ballast, top-down",
+     "uses": [
+      "track"
+     ]
+    },
+    {
+     "id": "tunnel-segments",
+     "materials": [],
+     "meters": 3.0,
+     "tint": 0.3,
+     "roughness": 0.8,
+     "relief": 0.006,
+     "prompt": "concrete tunnel lining segments with bolt pockets",
+     "uses": [
+      "tunnel-lining"
+     ]
+    },
+    {
+     "id": "runway",
+     "materials": [],
+     "meters": 6.0,
+     "tint": 0.3,
+     "roughness": 0.8,
+     "relief": 0.003,
+     "prompt": "airport runway concrete slabs, top-down",
+     "uses": [
+      "runway"
+     ]
+    },
+    {
+     "id": "runway-marks",
+     "materials": [],
+     "meters": 6.0,
+     "tint": 0.3,
+     "roughness": 0.8,
+     "relief": 0.003,
+     "prompt": "runway concrete with black tire marks, top-down",
+     "uses": [
+      "runway-marks"
+     ]
+    },
+    {
+     "id": "subway-tiles",
+     "materials": [
+      44,
+      49
+     ],
+     "meters": 0.9,
+     "tint": 0.3,
+     "roughness": 0.25,
+     "relief": 0.002,
+     "prompt": "white glossy subway tiles in running bond"
+    },
+    {
+     "id": "galvanized-pole",
+     "materials": [],
+     "meters": 0.8,
+     "tint": 0.3,
+     "roughness": 0.45,
+     "relief": 0.001,
+     "prompt": "galvanized steel pole surface with spangle",
+     "uses": [
+      "pole"
+     ]
+    },
+    {
+     "id": "guardrail",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.3,
+     "roughness": 0.45,
+     "relief": 0.008,
+     "prompt": "galvanized W-beam guardrail with bolts",
+     "uses": [
+      "guardrail"
+     ],
+     "uniform": "x"
+    },
+    {
+     "id": "manhole",
+     "materials": [],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.6,
+     "relief": 0.006,
+     "prompt": "cast iron manhole cover set in asphalt, top-down",
+     "art": "manhole"
+    }
+   ]
+  },
+  {
+   "id": "glass-effects",
+   "title": "Glass, smoke, fire and water",
+   "slots": [
+    {
+     "id": "mirror-glass",
+     "materials": [],
+     "meters": 12.0,
+     "tint": 0,
+     "roughness": 0.05,
+     "relief": 0,
+     "prompt": "dark reflective curtain wall glass reflecting towers and clouds",
+     "art": "glass-distant"
+    },
+    {
+     "id": "frosted-glass",
+     "materials": [],
+     "meters": 0.8,
+     "tint": 0,
+     "roughness": 0.3,
+     "relief": 0.001,
+     "prompt": "frosted textured glass, soft light behind",
+     "uses": [
+      "frosted"
+     ]
+    },
+    {
+     "id": "glass-block",
+     "materials": [
+      44
+     ],
+     "meters": 0.6,
+     "tint": 0.2,
+     "roughness": 0.1,
+     "relief": 0.004,
+     "prompt": "clear glass blocks in a grid"
+    },
+    {
+     "id": "smoke",
+     "materials": [],
+     "meters": 4.0,
+     "tint": 1,
+     "roughness": 0.9,
+     "relief": 0,
+     "prompt": "wisps of grey smoke on a black background",
+     "uses": [
+      "smoke"
+     ],
+     "flatten": 0
+    },
+    {
+     "id": "flames",
+     "materials": [],
+     "meters": 3.0,
+     "tint": 0,
+     "roughness": 0.9,
+     "relief": 0,
+     "prompt": "orange flames on a black background",
+     "uses": [
+      "fire"
+     ],
+     "flatten": 0
+    },
+    {
+     "id": "dust-cloud",
+     "materials": [],
+     "meters": 4.0,
+     "tint": 1,
+     "roughness": 0.9,
+     "relief": 0,
+     "prompt": "brown dust cloud on a black background",
+     "uses": [
+      "dust"
+     ],
+     "flatten": 0
+    },
+    {
+     "id": "sparks",
+     "materials": [],
+     "meters": 2.0,
+     "tint": 0,
+     "roughness": 0.9,
+     "relief": 0,
+     "prompt": "glowing orange sparks on a black background",
+     "uses": [
+      "sparks"
+     ],
+     "flatten": 0
+    },
+    {
+     "id": "cumulus",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "white cumulus clouds in a blue sky"
+    },
+    {
+     "id": "ripples",
+     "materials": [],
+     "meters": 2.5,
+     "tint": 0,
+     "roughness": 0.1,
+     "relief": 0,
+     "prompt": "sunlit water ripples, top-down",
+     "uses": [
+      "ripples"
+     ]
+    }
+   ]
   }
  ]
 }

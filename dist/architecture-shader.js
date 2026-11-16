@@ -15,15 +15,6 @@ const vec3 surfaceScale[${surfaceProfiles.length}]=vec3[](${surfaceProfiles.map(
 // table, -1 for none) and whether the surface belongs to a furnished room.
 int photoColumn=-1;
 bool roomSurface=false,photoApplied=false;
-// One of the layers listed in a table column, chosen by pick (0-1); -1 when the column is empty.
-int listedLayer(int column,float pick){
-  if(uPhotoReady<.5)return -1;
-  vec4 a=texelFetch(uPhotoTable,ivec2(column,0),0),b=texelFetch(uPhotoTable,ivec2(column,1),0);
-  float count=a.x<0.?0.:a.y<0.?1.:a.z<0.?2.:a.w<0.?3.:b.x<0.?4.:b.y<0.?5.:b.z<0.?6.:b.w<0.?7.:8.;
-  if(count<1.)return -1;
-  int i=int(floor(clamp(pick,0.,.9999)*count));
-  return int(i==0?a.x:i==1?a.y:i==2?a.z:i==3?a.w:i==4?b.x:i==5?b.y:i==6?b.z:b.w);
-}
 int photoLayer(int mat){
   if(mat<0||mat>=64)return -1;
   return listedLayer(mat,mat>=26&&mat<=28?0.:hash(floor(center.xz/24.)+vec2(float(mat)*7.31,3.7)));
@@ -42,6 +33,7 @@ vec3 photoMaterial(vec3 base,inout vec3 normal,int mat,int photo,float footprint
   vec3 up=ground?vec3(0.,0.,1.):vec3(0.,1.,0.);
   // Image rows run downward, so walls read the texture with up pointing to the top of the photo.
   vec2 uv=vec2(dot(wPos,tangent),-dot(wPos,up))/info.xy;
+  if(photoColumn==83)uv=vec2(localPos.x/info.x+.5,localPos.z/info.y);
   if(photoColumn==71){
     // Bark wraps the trunk: a whole number of repeats around it, so the back has no seam.
     float around=max(1.,floor(3.14159*max(extent.x,.12)/info.x+.5));

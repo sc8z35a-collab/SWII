@@ -1087,8 +1087,10 @@ function useRenderer(canvas,next){
   void loadArchitectureMaterials().then(bytes=>{
     if(renderer===next)next.setMaterials(bytes);
   }).catch(error=>console.info('Architectural materials unavailable',error.message));
-  // Image-generated textures, when the skill has made them: phones get smaller layers.
-  if(next.setPhotoTextures)void loadGeneratedTextures({tile:coarsePointer.matches?256:save.quality==='high'?512:384}).then(photos=>{
+  // Image-generated textures, when the skill has made them. About 170 layers with mipmaps take
+  // 134 MB of video memory at 384 px, 93 MB at 320 px and 46 MB at 224 px.
+  const photoTile=coarsePointer.matches||save.quality==='low'?224:save.quality==='high'?384:320;
+  if(next.setPhotoTextures)void loadGeneratedTextures({tile:photoTile}).then(photos=>{
     if(photos&&renderer===next)next.setPhotoTextures(photos);
     else for(const layer of photos?.layers??[])layer.close?.();
   });

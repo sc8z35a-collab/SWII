@@ -34,13 +34,12 @@ function createMetroScene(){
           b.point(side+.037,trackY+.096),a.point(side+.037,trackY+.096),'9caaa9',25);
       }
       const {part}=meshFrame(meshes,railPose(leg,(first+last)*.5));
+      // The track bed: ballast and sleepers come from the track photo along the rails.
+      part('box',0,.035,0,2.4,.05,last-first+.04,'5e5d58',12);
       part('box',-1.56,4.92,0,.13,.073,Math.min(4,last-first),'ede0b9',7);
       part('box',-2.24,1.15,0,.08,.063,last-first+.05,'636e66',25);
     }
-    for(let d=1.5;d<leg.length;d+=2.4){
-      const {part}=meshFrame(meshes,railPose(leg,d));
-      part('box',0,-.019,0,2.07,.17,.33,'73746b',24.25);
-    }
+
   }
   for(const station of stations){
     const [dx,dz]=station.tangent,yaw=Math.atan2(dx,-dz);

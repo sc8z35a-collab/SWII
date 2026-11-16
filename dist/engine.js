@@ -344,7 +344,9 @@ export function createRenderer(canvas,{wait=true}={}){
     const job=photoUpload;
     gl.activeTexture(gl.TEXTURE7);
     gl.bindTexture(gl.TEXTURE_2D_ARRAY,job.texture);
-    for(let n=0;n<3&&job.next<job.layers.length;n++,job.next++){
+    // About 2.4 MB per frame: four 384 px layers, six at 320 px or twelve at 224 px.
+    const perFrame=Math.max(1,Math.round(2.4e6/(job.tile*job.tile*4)));
+    for(let n=0;n<perFrame&&job.next<job.layers.length;n++,job.next++){
       const image=job.layers[job.next];
       gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,job.next,job.tile,job.tile,1,gl.RGBA,gl.UNSIGNED_BYTE,image);
       image.close?.();job.layers[job.next]=null;
@@ -516,6 +518,7 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform2f(u.CloudOffset,time*7.5+1800,time*2.6-900);
     gl.uniform1f(u.CloudCover,lighting.clouds??.42);
     gl.uniform4fv(u.Flash,flash);
+    if(u.PhotoMaps){gl.uniform1i(u.PhotoMaps,5);gl.uniform1i(u.PhotoTable,6);gl.uniform1f(u.PhotoReady,photoReady?1:0);}
     gl.uniform3fv(u.FlashColor,flashColor);
     if(u.ShadowVP0){
       gl.uniformMatrix4fv(u.ShadowVP0,false,cascades[0].matrix??identity);
@@ -674,9 +677,6 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform3fv(main.u.Eye,eye);
     gl.uniform1f(main.u.Signal,signal);
     gl.uniform1i(main.u.SurfaceMaps,1);
-    gl.uniform1i(main.u.PhotoMaps,5);
-    gl.uniform1i(main.u.PhotoTable,6);
-    gl.uniform1f(main.u.PhotoReady,photoReady?1:0);
     gl.uniform1f(main.u.MaterialDetail,surfacesReady?(quality==='low'?1:2):0);
     drawBatches(front,planes,eye);
     for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);

@@ -3,6 +3,8 @@ import {architectureShader} from './architecture-shader.js';
 import {APARTMENT_GLASS,EXHAUST,HEAT_METAL,IGNITION,LIFT_MATERIAL_OFFSET,ROOM_MATERIAL_OFFSET,SHOCK,SPIRIT,DUST,LEATHER,PAPER,SOOT,SHIELD_TILE,CERAMIC_SHELL} from './architecture-materials.js';
 import {SIGNAL_GREEN,SIGNAL_RED,STREET_LAMP} from './street-lights.js';
 import {AIRCRAFT} from './moving-models.js';
+import {launchSite} from './mission-layout.js';
+import {airport} from './transport-layout.js';
 import {glslBRDF,glslClouds,glslCommon,glslSkyLookup} from './gfx-common.js';
 
 export const KIND_IDS={box:0,chamfer:1,taper:2,roof:3,window:4,tube:5,cone:6,pyramid:7,ball:8,tri:9,pane:10,effect:11};
@@ -19,6 +21,10 @@ uniform mat4 uShadowVP0,uShadowVP1;
 uniform vec4 uShadowRange;
 uniform highp sampler2DShadow uShadowMap;
 uniform highp sampler2D uShadowDepth;
+// Image-generated textures (generated-textures.js): a layer array and the lookup table.
+uniform highp sampler2DArray uPhotoMaps;
+uniform highp sampler2D uPhotoTable;
+uniform float uPhotoReady;
 ${glslCommon}
 ${glslBRDF}
 ${glslSkyLookup}
@@ -39,6 +45,39 @@ vec3 flashIrradiance(vec3 n){
   vec3 d=uFlash.xyz-shadePosition;
   float r2=dot(d,d);
   return uFlashColor*uFlash.w*max(dot(n,d)*inversesqrt(r2+1e-4),0.)/(r2+6.);
+}
+// One of the layers listed in a column of the photo table, chosen by pick (0-1); -1 when empty.
+int listedLayer(int column,float pick){
+  if(uPhotoReady<.5)return -1;
+  vec4 a=texelFetch(uPhotoTable,ivec2(column,0),0),b=texelFetch(uPhotoTable,ivec2(column,1),0);
+  float count=a.x<0.?0.:a.y<0.?1.:a.z<0.?2.:a.w<0.?3.:b.x<0.?4.:b.y<0.?5.:b.z<0.?6.:b.w<0.?7.:8.;
+  if(count<1.)return -1;
+  int i=int(floor(clamp(pick,0.,.9999)*count));
+  return int(i==0?a.x:i==1?a.y:i==2?a.z:i==3?a.w:i==4?b.x:i==5?b.y:i==6?b.z:b.w);
+}
+// A layer sampled at uv in its own repeats (the table holds its size in meters), linear color.
+// The derivatives are unwrapped so a seam in uv (for example around a body) does not blur.
+// A layer sampled at a uv in its own units (1 = one tile), linear color.
+vec3 photoAt(int layer,vec2 uv){vec3 c=texture(uPhotoMaps,vec3(uv,float(layer))).rgb;return c*c;}
+vec4 photoInfo(int layer){return texelFetch(uPhotoTable,ivec2(layer,2),0);}
+vec3 photoSample(int layer,vec2 meters,out vec4 info){
+  info=texelFetch(uPhotoTable,ivec2(layer,2),0);
+  vec2 uv=meters/info.xy,dx=dFdx(uv),dy=dFdy(uv);
+  dx-=round(dx);dy-=round(dy);
+  vec3 c=textureGrad(uPhotoMaps,vec3(uv,float(layer)),dx,dy).rgb;
+  return c*c;
+}
+// Puts a generated texture onto a linear albedo: tint 0 takes the photo's color (scaled to the
+// albedo's brightness), tint 1 only its light and shade. strength fades it in and out.
+vec3 photoDetail(int column,float pick,vec2 meters,vec3 albedo,float strength){
+  int layer=listedLayer(column,pick);
+  if(layer<0||strength<=0.)return albedo;
+  vec4 info;
+  vec3 c=photoSample(layer,meters,info);
+  float shade=luminance(c)/max(info.w,.005);
+  vec3 natural=c*clamp(luminance(albedo)/max(info.w,.005),.4,2.5);
+  vec3 colored=albedo*clamp(shade,.25,2.6);
+  return mix(albedo,mix(natural,colored,info.z),strength);
 }
 vec3 ambientLight(vec3 n){
   vec3 toward=normalize(vec3(uSun.x,0.,uSun.z)+vec3(1e-4,0.,0.));
@@ -247,9 +286,7 @@ flat in vec3 center;
 flat in mat3 basis;
 uniform float uSignal,uMaterialDetail;
 uniform int uKind;
-uniform highp sampler2DArray uSurfaceMaps,uPhotoMaps;
-uniform highp sampler2D uPhotoTable;
-uniform float uPhotoReady;
+uniform highp sampler2DArray uSurfaceMaps;
 layout(location=0)out vec4 frag;
 ${glslLighting}
 ${vec4Table('eraProfiles',eraProfiles)}
@@ -275,13 +312,34 @@ vec4 effectColor(float mat){
     float hot=(1.-smoothstep(.28,.90,horizontal))*pow(1.-along,.78)*cell;
     a=(1.-smoothstep(.05,1.28,horizontal))*(1.-smoothstep(.52,1.,along))*(.53+.51*turbulence);
     color=mix(vec3(1.,.22,.04),vec3(1.,.93,.72),hot)*(6.+hot*38.);
+    int flame=listedLayer(106,.5);
+    if(flame>=0){
+      vec3 fire=photoAt(flame,vec2(q.x*.35+fract(center.x*.173),along*.9-uTime*.55+center.z*.031));
+      float f=luminance(fire)/max(photoInfo(flame).w,.01);
+      color*=mix(vec3(1.),fire/max(luminance(fire),.01)*.8,.4)*clamp(f,.35,1.8);
+      a*=mix(1.,smoothstep(.1,.9,f),.45);
+    }
   }else if(mat==${SHOCK}.){
     a=exp(-pow((r-.77)*11.,2.))*.64+exp(-r*r*8.)*.25;
     color=tint*(ambientLight(vec3(0.,1.,0.))*3.+uSunColor*.4)+vec3(1.,.8,.5)*exp(-r*r*8.)*3.;
+    int spark=listedLayer(108,.5);
+    if(spark>=0){
+      vec3 glow=photoAt(spark,q*.45+.5+center.xz*.07);
+      float s=smoothstep(.06,.35,luminance(glow));
+      color+=glow*30.*s;a=max(a,s*.9*(1.-smoothstep(.6,1.,r)));
+    }
   }else{
     vec2 p=q*3.9+center.xz*.346+vec2(uTime*.12,-uTime*.19);
     float turbulence=noise(p)*.63+noise(p*2.03)*.26+noise(p*4.07)*.11;
     a=(1.-smoothstep(.26,.97,r+(turbulence-.52)*.40))*mix(.45,1.,turbulence);
+    // Photographed smoke or dust (on black) shapes the puff; its brightness becomes density.
+    int puff=listedLayer(mat==${DUST}.?107:105,.5);
+    if(puff>=0&&mat!=${SPIRIT}.){
+      vec3 cloud=photoAt(puff,q*.42+.5+fract(center.xz*.0137)+vec2(uTime*.01,-uTime*.016));
+      float d=luminance(cloud)/max(photoInfo(puff).w,.01);
+      a*=mix(1.,clamp(d,.15,1.9),.65);
+      if(mat==${DUST}.)tint=mix(tint,tint*cloud/max(luminance(cloud),.01)*.6,.5);
+    }
     vec2 grad=vec2(noise(p+vec2(.35,0.))-noise(p-vec2(.35,0.)),noise(p+vec2(0.,.35))-noise(p-vec2(0.,.35)));
     vec3 nq=normalize(vec3(q*.75+grad*1.6,max(.2,1.-r*r)));
     vec3 n=normalize(basis[0]*nq.x+basis[1]*nq.y+basis[2]*nq.z);
@@ -359,6 +417,21 @@ void main(){
   else if(uUnderground>.5&&mat==23.&&abs(n.y)<.5)photoColumn=75;
   else if(uUnderground>.5&&mat==23.)photoColumn=77;
   else if(uKind==${KIND_IDS.box}&&mat==18.&&n.y>.9)photoColumn=76;
+  else if(airborne&&mat==25.&&uKind==${KIND_IDS.box}){
+    // Tokyo Tower's red and white steel and the gold trim of the launch plaza.
+    vec3 c=style.rgb;
+    if(c.r>.6&&c.g<.4)photoColumn=78;else if(min(c.r,min(c.g,c.b))>.75)photoColumn=79;else if(c.r>.7&&c.g>.55&&c.b<.5)photoColumn=81;
+  }
+  else if(length(wPos.xz-vec2(${launchSite.gate.x}.,${launchSite.gate.z}.))<10.&&style.r>style.g*1.6&&style.r>.45&&!groundLike)photoColumn=80;
+  else if(mat==55.&&!airborne)photoColumn=82;
+  else if(uUnderground>.5&&uKind==${KIND_IDS.box}&&mat==12.&&extent.y<.08&&extent.x>2.)photoColumn=83;
+  else if(uUnderground>.5&&mat==12.&&abs(n.y)<.5)photoColumn=84;
+  else if(groundLike&&mat!=3.&&wPos.x>${airport.west}.&&wPos.x<${airport.east}.&&wPos.z>${airport.north}.&&wPos.z<${airport.south}.)
+    photoColumn=abs(wPos.z-${airport.runway[1]}.)<24.?86:85;
+  else if(uKind==${KIND_IDS.tube}&&mat==25.&&extent.y>2.5&&extent.x<.5)photoColumn=87;
+  else if(uKind==${KIND_IDS.box}&&mat==25.&&extent.y<.6&&max(extent.x,extent.z)>2.5)photoColumn=88;
+  else if(uUnderground>.5&&uKind==${KIND_IDS.box}&&mat==25.&&extent.y>1.2&&extent.y<4.)photoColumn=90;
+  else if(uUnderground>.5&&mat==24.)photoColumn=91;
   base=facadeMaterial(base,n,int(mat),era,footprint,roughness,cavity);
   float metal=0.,f0=.04,translucency=0.,sheen=0.,occlusion=cavity,windowMask=0.,share;
   vec3 emission=vec3(0.),windowColor=vec3(0.);
@@ -411,6 +484,14 @@ void main(){
     base*=1.-stain;
     roughness=clamp(roughness*.95+.03-stain*.35,.45,.95);
     occlusion*=1.-crack*.5;
+    // A manhole cover in some 16 m cells of the road, where the photo exists.
+    vec2 cellId=floor(p/16.),inCell=p-cellId*16.-8.;
+    int cover=listedLayer(89,.5);
+    if(cover>=0&&hash(cellId+.37)>.62&&length(inCell)<.62&&footprint<.4){
+      vec3 iron=photoAt(cover,inCell/1.3+.5);
+      float disc=1.-smoothstep(.5,.56,length(inCell));
+      base=mix(base,sqrt(iron),disc);roughness=mix(roughness,.55,disc);metal=mix(metal,.3,disc);
+    }
   }
   if(mat==9.||mat==26.||mat==47.){
     vec2 p=wPos.xz;
@@ -440,6 +521,14 @@ void main(){
     vec2 ripple=vec2(noise(p*3.1+uTime*vec2(.9,.4))-.5,noise(p*3.1+vec2(5.,2.)-uTime*vec2(.5,.8))-.5);
     float swells=1.-smoothstep(2.5,9.,footprint);
     vec2 slope=swell*.026*swells+wave*.04*waves+ripple*.11*ripples;
+    int rippleLayer=listedLayer(109,.5);
+    if(rippleLayer>=0&&waves>0.){
+      // Photographed ripples drifting with the water add fine slopes from their light and shade.
+      vec2 q=p/2.5+uTime*vec2(.018,.011);
+      float e=.004,h0=luminance(photoAt(rippleLayer,q));
+      vec2 grad=vec2(luminance(photoAt(rippleLayer,q+vec2(e,0.)))-h0,luminance(photoAt(rippleLayer,q+vec2(0.,e)))-h0)/e;
+      slope+=grad*.0035*waves;
+    }
     vec3 wn=normalize(vec3(slope.x,1.,slope.y));
     float NoV=max(dot(wn,v),1e-3);
     float F=.02+.98*pow5(1.-NoV);
@@ -531,6 +620,12 @@ void main(){
       float office=glass||shop?1.:0.;
       vec3 inside=interiorRadiance(cell,f,cellSize,ray,sunLocal,office,vec4(margin,bottom,top,0.),seed,curtains);
       vec2 paneSeed=cell+seed*3.1;
+      // Bathroom windows of homes: frosted glass, lit from inside.
+      int frost=office<.5&&hash(paneSeed+11.3)>.86?listedLayer(104,.5):-1;
+      if(frost>=0){
+        vec3 milk=photoAt(frost,f*vec2(cellSize.x,cellSize.y)/.8)/max(photoInfo(frost).w,.01);
+        inside=milk*(uAmbUp*1.6+uAmbSun*.8+uSunColor*max(uSun.y,0.)*.06)*.5;
+      }
       vec3 jitter=(vec3(hash(paneSeed+3.1),hash(paneSeed+7.7),hash(paneSeed+1.3))-.5)*.03;
       vec3 gn=normalize(geometryNormal+jitter);
       float NoV=max(dot(gn,v),1e-3);
@@ -558,6 +653,12 @@ void main(){
     float far=vertical*(1.-vis)*area;
     if(far>0.){
       vec3 avgWindow=mix(vec3(.025,.03,.035),cityReflection(reflect(-v,geometryNormal),.3),.18+.5*pow5(1.-max(dot(geometryNormal,v),0.)));
+      int mirror=glass?listedLayer(103,hash(floor(center.xz/24.))):-1;
+      if(mirror>=0){
+        // Far glass towers: a photographed mirror facade keeps their reflections lively.
+        vec3 picture=photoAt(mirror,vec2(dot(wPos.xz,normalize(vec2(-geometryNormal.z,geometryNormal.x)+1e-4)),-wPos.y)/12.);
+        avgWindow=mix(avgWindow,picture/max(photoInfo(mirror).w,.01)*luminance(avgWindow),.6);
+      }
       windowColor=mix(windowColor,avgWindow,far/max(far+windowMask,1e-4));
       windowMask=max(windowMask,far*(glass?.95:.75));
     }
