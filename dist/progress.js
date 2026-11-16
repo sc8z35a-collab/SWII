@@ -17,7 +17,9 @@ export function readProgress(storage){
     ...readSettings(saved)};
 }
 // Display, camera and sound preferences, each falling back to its default when missing or invalid.
-export const settingDefaults={fov:61,motionBlur:true,shake:true,invertY:false,showFps:false,volume:.7,mouseLock:false};
+// viewDistance 0 is automatic; 1-10 load from about 200 m to 740 m around the player.
+export const settingDefaults={fov:61,motionBlur:true,shake:true,invertY:false,showFps:false,volume:.7,mouseLock:false,
+  resolution:'auto',fps:60,reflections:true,viewDistance:0};
 function readSettings(saved){
   const pick=(key,valid)=>valid(saved?.[key])?saved[key]:settingDefaults[key];
   const flag=value=>typeof value==='boolean';
@@ -28,7 +30,11 @@ function readSettings(saved){
     invertY:pick('invertY',flag),
     showFps:pick('showFps',flag),
     volume:pick('volume',v=>[0,.35,.7,1].includes(v)),
-    mouseLock:pick('mouseLock',flag)
+    mouseLock:pick('mouseLock',flag),
+    resolution:pick('resolution',v=>['auto','fhd','2k'].includes(v)),
+    fps:pick('fps',v=>[30,60,120].includes(v)),
+    reflections:pick('reflections',flag),
+    viewDistance:pick('viewDistance',v=>Number.isInteger(v)&&v>=0&&v<=10)
   };
 }
 

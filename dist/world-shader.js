@@ -25,6 +25,8 @@ uniform highp sampler2D uShadowDepth;
 uniform highp sampler2DArray uPhotoMaps;
 uniform highp sampler2D uPhotoTable;
 uniform float uPhotoReady;
+// 0 turns mirror reflections (sky, city and street seen in glass, water, paint) into plain ambience.
+uniform float uReflect;
 ${glslCommon}
 ${glslBRDF}
 ${glslSkyLookup}
@@ -87,7 +89,7 @@ vec3 ambientLight(vec3 n){
   return a+uBounce*(mix(1.,.35,side*.5+.5)*(1.-abs(n.y))+.3*max(n.y,0.));
 }
 vec3 environment(vec3 r,float roughness){
-  if(uUnderground>.5)return ambientLight(r)*.9;
+  if(uUnderground>.5||uReflect<.5)return ambientLight(r)*.9;
   vec3 sky=skyLUT(vec3(r.x,max(r.y,.012),r.z));
   vec3 blurred=ambientLight(r)*.78;
   vec3 above=mix(sky,blurred,smoothstep(.2,.85,roughness));
@@ -839,7 +841,7 @@ void main(){
     float far=vertical*(1.-vis)*area;
     if(far>0.){
       vec3 avgWindow=mix(vec3(.025,.03,.035),cityReflection(reflect(-v,geometryNormal),.3),.18+.5*pow5(1.-max(dot(geometryNormal,v),0.)));
-      int mirror=glass?listedLayer(103,hash(floor(center.xz/24.))):-1;
+      int mirror=glass&&uReflect>.5?listedLayer(103,hash(floor(center.xz/24.))):-1;
       if(mirror>=0){
         // Far glass towers: a photographed mirror facade keeps their reflections lively.
         vec3 picture=photoAt(mirror,vec2(dot(wPos.xz,normalize(vec2(-geometryNormal.z,geometryNormal.x)+1e-4)),-wPos.y)/12.);

@@ -101,3 +101,15 @@ test('sound calls are harmless where Web Audio is missing',async()=>{
   audio.step(1.6);audio.pickup();audio.hit();audio.blast(120);audio.click();
   assert.equal(audio.started,false);
 });
+
+test('display settings: resolution, frame rate, reflections and view distance',()=>{
+  const read=value=>readProgress(storage(value));
+  const defaults=read({});
+  assert.equal(defaults.resolution,'auto');assert.equal(defaults.fps,60);
+  assert.equal(defaults.reflections,true);assert.equal(defaults.viewDistance,0);
+  const chosen=read({resolution:'2k',fps:120,reflections:false,viewDistance:10});
+  assert.deepEqual([chosen.resolution,chosen.fps,chosen.reflections,chosen.viewDistance],['2k',120,false,10]);
+  const invalid=read({resolution:'8k',fps:144,reflections:'no',viewDistance:11});
+  assert.deepEqual([invalid.resolution,invalid.fps,invalid.reflections,invalid.viewDistance],['auto',60,true,0]);
+  assert.equal(read({viewDistance:2.5}).viewDistance,0);
+});

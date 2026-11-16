@@ -297,7 +297,7 @@ float box2(vec2 p,vec2 lo,vec2 hi,float soft){
   vec2 a=smoothstep(lo-soft,lo+soft,p)*(1.-smoothstep(hi-soft,hi+soft,p));return a.x*a.y;
 }
 vec3 streetReflection(vec3 r,float rough){
-  if(uUnderground>.5)return ambientLight(r)*.8;
+  if(uUnderground>.5||uReflect<.5)return ambientLight(r)*.8;
   vec3 sky=skyLUT(vec3(r.x,max(r.y,.015),r.z));
   float heading=atan(r.x,r.z)*7.6;
   float bh=hash(vec2(floor(heading),14.));

@@ -283,3 +283,7 @@ dialog{background:linear-gradient(160deg,rgba(28,35,38,.86),rgba(14,18,21,.9));b
 }
 @media (prefers-reduced-motion:reduce){#hitMark.show{animation-duration:.01s}}
 #threat[data-level=trace]{background:rgba(64,50,18,.56);border-color:rgba(240,212,155,.5);box-shadow:0 0 22px rgba(240,200,120,.16)}
+/* View distance slider in the settings. */
+.range-setting{display:flex;align-items:center;gap:10px;min-width:180px}
+.range-setting input{flex:1;accent-color:var(--gold)}
+.range-setting output{min-width:52px;text-align:right;font:700 12px ui-monospace,monospace;color:var(--cream)}

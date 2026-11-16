@@ -246,6 +246,7 @@ export function createRenderer(canvas,{wait=true}={}){
   let scene=[],sceneSet=new Set(),residentBytes=0,renderedFrames=0,detailRadius=227,viewRadius=435;
   let quality='auto',autoScale=1,previousWalkers;
   let flash=new Float32Array(4),flashColor=[1,.6,.3];
+  let resolution='auto',reflections=true;
   let shadowBuffer=null,shadowUnsupported=false,shadowDirty=true;
   const cascades=[{range:38,snap:4,key:'',last:-Infinity,matrix:null,planes:null},{range:205,snap:40,key:'',last:-Infinity,matrix:null,planes:null}];
   let skyKey='',model=null,modelTime=-Infinity,lutDirty=true;
@@ -559,6 +560,7 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform2f(u.CloudOffset,time*7.5+1800,time*2.6-900);
     gl.uniform1f(u.CloudCover,lighting.clouds??.42);
     gl.uniform4fv(u.Flash,flash);
+    gl.uniform1f(u.Reflect,reflections?1:0);
     if(u.PhotoMaps){gl.uniform1i(u.PhotoMaps,5);gl.uniform1i(u.PhotoTable,6);gl.uniform1f(u.PhotoReady,photoReady?1:0);}
     gl.uniform3fv(u.FlashColor,flashColor);
     if(u.ShadowVP0){
@@ -636,7 +638,10 @@ export function createRenderer(canvas,{wait=true}={}){
     const dpi=devicePixelRatio||1;
     const normalScale=Math.min(dpi,quality==='high'?1.5:mobile?1:1.25);
     // The light mode renders 400 lines and lets the browser enlarge the picture.
-    const scale=quality==='low'?Math.min(dpi,LIGHT_LINES/Math.max(1,clientHeight)):quality==='auto'?normalScale*autoScale:normalScale;
+    // A fixed resolution (FHD 1080 or 2K 1440 lines) replaces the automatic scale outside the light mode.
+    const lines=resolution==='2k'?1440:resolution==='fhd'?1080:0;
+    const scale=quality==='low'?Math.min(dpi,LIGHT_LINES/Math.max(1,clientHeight)):lines?lines/Math.max(1,clientHeight):
+      quality==='auto'?normalScale*autoScale:normalScale;
     const w=Math.max(1,Math.round(clientWidth*scale)),h=Math.max(1,Math.round(clientHeight*scale));
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     try{post.resize(w,h);}
@@ -833,6 +838,11 @@ export function createRenderer(canvas,{wait=true}={}){
       post.invalidate();
     },
     setAutoScale(value){autoScale=value;},
+    // resolution: 'auto', 'fhd' or '2k'; reflections: false draws glass, water and paint without mirror images.
+    setDisplay(options){
+      if(options.resolution&&options.resolution!==resolution){resolution=options.resolution;post.invalidate();}
+      if(typeof options.reflections==='boolean')reflections=options.reflections;
+    },
     dispose(){
       resize?.disconnect();
       actors.dispose?.();
