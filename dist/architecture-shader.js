@@ -102,7 +102,7 @@ vec3 facadeMaterial(vec3 base,inout vec3 normal,int mat,int era,float footprint,
 // Reflections of a city street: sky above, a varied skyline with windows and lit facades
 // near the horizon, and the street below.
 vec3 cityReflection(vec3 r,float roughness){
-  if(uUnderground>.5)return ambientLight(r)*.8;
+  if(uUnderground>.5||uReflect<.5)return ambientLight(r)*.8;
   vec3 sky=skyLUT(vec3(r.x,max(r.y,.015),r.z));
   float heading=atan(r.x,r.z)*7.6;
   float column=floor(heading),across=fract(heading);

@@ -5,7 +5,7 @@ import {gunzipSync} from 'node:zlib';
 import {cities,build,TOKYO_TOWER_SCALE} from '../dist/world.js';
 import {limits,TILE_COLS,TILE_ROWS,WORLD_VERSION,hasTile,liquidAt,tileOrigin,toGlobal,toTile,waterLevel} from '../dist/geography.js';
 import {decodeTile,meshKinds,overlaps,platformHeight,sampleHeight,terrainWater,tilesAround} from '../dist/tiles.js';
-import {RUN_SPEED,discoverable,frameInputs,idleDrive,keepCameraOutOfWalls,landmarks,readInputs,simulate,spawn,stepMotion,terrainSampler} from '../dist/physics.js';
+import {RUN_SPEED,WALK_SPEED,discoverable,frameInputs,idleDrive,keepCameraOutOfWalls,landmarks,readInputs,simulate,spawn,stepMotion,terrainSampler} from '../dist/physics.js';
 import {createMission} from '../dist/mission.js';
 import {makeRoutes} from '../tools/layout.mjs';
 import {pedestrianPose,peopleMeshes} from '../dist/people.js';
@@ -191,13 +191,13 @@ test('the skyline contains distinct tall forms and every lobby has a walkable en
     assert.notEqual(start,null,style+' approach');
     assert.ok(Math.abs(terrain.support(...door)-floor)<.04,style+' threshold');
     const state={...spawn(city),x:a,z:b,y:start,yaw};
-    for(let ms=0;ms<distance/6.8*1000+120;ms+=100)simulate(state,[[100,1,0,yaw,false]],terrain);
+    for(let ms=0;ms<distance/WALK_SPEED*1000+120;ms+=100)simulate(state,[[100,1,0,yaw,false]],terrain);
     assert.ok(Math.hypot(state.x-c,state.z-d)<1.05,style+' entry');
     assert.ok(Math.abs(state.y-floor)<.03,style+' interior floor');
     const rear=-front*(depth*.5-.31);
     assert.equal(terrain.support(x+Math.sin(angle)*rear,z+Math.cos(angle)*rear),null,style+' rear wall');
     simulate(state,[[230,0,0,yaw,false]],terrain);
-    for(let ms=0;ms<distance/6.8*1000+270;ms+=100)simulate(state,[[100,-1,0,yaw,false]],terrain);
+    for(let ms=0;ms<distance/WALK_SPEED*1000+270;ms+=100)simulate(state,[[100,-1,0,yaw,false]],terrain);
     assert.ok(Math.hypot(state.x-a,state.z-b)<1.3,style+' exit');
   }
 });
@@ -288,7 +288,7 @@ test('residential forms have distinct furnished interiors and facilities keep wa
       assert.notEqual(terrain.support(x,z),null,building.city+' market aisle');
       const [a,b]=approach,yaw=Math.atan2(x-a,b-z),distance=Math.hypot(x-a,z-b);
       const state={...spawn(building.city),x:a,z:b,y:terrain.support(a,b),yaw};
-      for(let ms=0;ms<distance/6.8*1000+170;ms+=100)simulate(state,[[100,1,0,yaw,false]],terrain);
+      for(let ms=0;ms<distance/WALK_SPEED*1000+170;ms+=100)simulate(state,[[100,1,0,yaw,false]],terrain);
       assert.ok(Math.hypot(state.x-x,state.z-z)<1.35,building.city+' market entrance');
     }
   }

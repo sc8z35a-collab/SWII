@@ -87,6 +87,7 @@ function applyProgress(next){
     autoScale=1;frameAverage=0;stableWindows=0;
     renderer?.setQuality(save.quality);
   }
+  renderer?.setDisplay?.({resolution:save.resolution,reflections:save.reflections,hdr:save.hdr});
   audio.setVolume(save.volume);sound.setVolume(save.volume);
   $('fps').hidden=!save.showFps;
   if(!save.mouseLock&&document.pointerLockElement)document.exitPointerLock?.();
@@ -313,7 +314,9 @@ function stream(x,z,now,landmark){
   if(!renderer)return;
   const light=save.quality==='low'&&!renderer.software,grid=light?16:96;
   const cx=Math.round(x/grid)*grid,cz=Math.round(z/grid)*grid;
-  const radius=renderer.software?240:light?LIGHT_RADIUS:coarsePointer.matches&&save.quality!=='high'?344:435;
+  // The view distance setting (1-10) loads 200-740 m around the player; 0 keeps the automatic radius.
+  const chosen=save.viewDistance>0?140+save.viewDistance*60:coarsePointer.matches&&save.quality!=='high'?344:435;
+  const radius=renderer.software?Math.min(240,chosen):light?LIGHT_RADIUS:chosen;
   // The light mode still keeps the ground around the player loaded for the creatures that roam on it.
   const reach=light?LIGHT_REACH:radius;
   const key=cx+','+cz+','+radius+','+save.quality+','+renderer.software+','+(landmark?'hero':'walk');
@@ -326,7 +329,7 @@ function stream(x,z,now,landmark){
   if(meshRevision!==world.revision){
     let batches=world.batches(meshView);
     if(light)batches=batches.filter(batch=>distanceToBounds(batch.bounds,x,z)<=(radius+grid)**2);
-    renderer.load(batches,renderer.software?139:light?radius:227,radius);
+    renderer.load(batches,renderer.software?139:light?radius:Math.round(Math.min(380,Math.max(140,radius*.52))),radius);
     hasMeshes=batches.length>0;meshRevision=world.revision;
   }
 }
@@ -872,7 +875,8 @@ function frame(now){
   }
   if(!startTime)startTime=now;
   const lightMode=save.quality==='low'&&!renderer.software;
-  const target=renderer.software?1000/30:lightMode?1000/LIGHT_FPS:1000/60;
+  // The frame rate setting caps the loop; the display's refresh rate is the real ceiling.
+  const target=renderer.software?1000/30:save.fps===0?0:1000/(save.fps||(lightMode?LIGHT_FPS:60));
   if(now+1<nextFrame)return;
   nextFrame=Math.max(nextFrame+target,now+target*.35);
   const interval=frameTime?now-frameTime:target;
@@ -935,7 +939,7 @@ function frame(now){
     }
   }else stream(eye[0],eye[2],now,active?null:[goal[0],goal[2]]);
   if(hasMeshes){
-    tuneScale(now,interval,target);
+    tuneScale(now,interval,target||1000/60);
     if(now>=nextWalker){
       const underground=active&&motion.station;
       const focus=active?{x:motion.x,y:motion.y+PLAYER_HEIGHT,z:motion.z,radius:motion.vehicle?2.7:motion.train?.boardedAt?0:1.5}:null;
@@ -988,23 +992,32 @@ const settingRows=[
   {key:'motionBlur',title:'モーションブラー',text:'速く移動しているときに周りを流れるようにぼかします。',options:[[true,'オン'],[false,'オフ']]},
   {key:'shake',title:'画面の揺れ',text:'爆発や巨人の足音、発射の振動で視点が揺れます。',options:[[true,'オン'],[false,'オフ']]},
   {key:'volume',title:'音量',text:'街の音、足音、車、爆発などの効果音です。Mキーで消音を切り替えられます。',options:[[0,'オフ'],[.35,'小'],[.7,'中'],[1,'大']]},
+  {key:'resolution',title:'解像度',text:'自動は画面と動作速度に合わせます。FHDは縦1080、2Kは縦1440、4Kは縦2160ピクセルで描きます（軽量モードは400のまま）。4Kはとても重くなります。',options:[['auto','自動'],['fhd','FHD'],['2k','2K'],['4k','4K']]},
+  {key:'fps',title:'フレームレート',text:'1秒あたりの描画回数の上限です。無制限は画面が表示できる回数（リフレッシュレート）まで描きます。',options:[[30,'30 fps'],[60,'60 fps'],[120,'120 fps'],[0,'無制限']]},
+  {key:'hdr',title:'HDR',text:'明るさの幅が広い16ビットで描き、ブルーム・自動露出・時間方向のアンチエイリアスを使います。なしは8ビットで軽くなります。',options:[[true,'あり'],[false,'なし']]},
+  {key:'reflections',title:'反射',text:'ガラス・水面・車の塗装に空や街並みを映します。なしにすると軽くなります。',options:[[true,'あり'],[false,'なし']]},
+  {key:'viewDistance',title:'読み込み範囲',text:'周りの街をどこまで読み込んで描くかです。広いほど遠くまで見えますが重くなります。',range:[0,10]},
   {key:'showFps',title:'フレームレート表示',text:'画面の右下に1秒あたりの描画回数を表示します。',options:[[false,'オフ'],[true,'オン']]}
 ];
 function settings(){
   const desktop=!coarsePointer.matches;
   return settingRows.filter(row=>!row.desktop||desktop).map(row=>'<div class="setting"><div><b>'+row.title+'</b><p>'+row.text+
-    '</p></div><select id="setting-'+row.key+'" aria-label="'+row.title+'">'+
-    row.options.map(([,label],i)=>'<option value="'+i+'">'+label+'</option>').join('')+'</select></div>').join('')+
+    '</p></div>'+(row.range?'<label class="range-setting"><input type="range" id="setting-'+row.key+'" min="'+row.range[0]+'" max="'+row.range[1]+'" step="1" aria-label="'+row.title+'"><output id="value-'+row.key+'"></output></label>':
+    '<select id="setting-'+row.key+'" aria-label="'+row.title+'">'+
+    row.options.map(([,label],i)=>'<option value="'+i+'">'+label+'</option>').join('')+'</select>')+'</div>').join('')+
   '<div class="setting"><div><b>全画面表示</b><p>端末が対応していれば横画面に切り替わります。</p></div><button id="fullBtn">'+(document.fullscreenElement?'全画面を終了':'全画面にする')+'</button></div>'+
   '<div class="setting"><div><b>操作</b><p>PCはWASDで移動・運転、Vで乗降、Eで地下鉄などの操作、Escで設定を開きます。運転中はShiftでブレーキ。F・スペース・クリック・右ボタンで射撃、Rでリロード。'+
   'ゲームパッドは左スティックで移動、右スティックで視点、Aで走る・ブレーキ、Bで乗降、Xで地下鉄などの操作、RTで射撃、Yでリロード、スタートで設定です。'+
   'スマホでは左のスティックと画面内のボタンを使えます。</p></div></div>'+
   '<div class="setting"><div><b>拳銃 RD II</b><p>三連装・9 mm。引き金1回で3発を同時に発射します。初速 '+RD2.muzzleVelocity+' m/s、空気抵抗による減速は銃口で約 '+Math.round(muzzleDeceleration)+' m/s²、重力 '+RD2.gravity.toFixed(2)+' m/s²。装填 '+RD2.magazine+' 発、初期所持 '+RD2.startingRounds+' 発。弾薬箱1個で '+RD2.pickupRounds+' 発。'+RD2.stunHits+' 発命中で敵は3分間気絶します。</p></div></div>';
 }
+const viewLabel=v=>v>0?(140+v*60)+' m':'自動';
 function syncSettings(){
   for(const row of settingRows){
     const select=$('setting-'+row.key);
-    if(select)select.value=String(Math.max(0,row.options.findIndex(([value])=>value===save[row.key])));
+    if(!select)continue;
+    if(row.range){select.value=String(save[row.key]);$('value-'+row.key).textContent=viewLabel(save[row.key]);}
+    else select.value=String(Math.max(0,row.options.findIndex(([value])=>value===save[row.key])));
   }
 }
 function openPanel(){
@@ -1016,8 +1029,9 @@ function openPanel(){
   for(const row of settingRows){
     const select=$('setting-'+row.key);
     if(!select)continue;
+    if(row.range)select.oninput=()=>{$('value-'+row.key).textContent=viewLabel(Number(select.value));};
     select.onchange=async()=>{
-      const value=row.options[Number(select.value)]?.[0];
+      const value=row.range?Number(select.value):row.options[Number(select.value)]?.[0];
       if(value===undefined||!await saveProgress(()=>({[row.key]:value}))){syncSettings();toast(row.title+'を保存できませんでした');}
     };
   }
@@ -1224,6 +1238,7 @@ function useRenderer(canvas,next){
   if(scene!==canvas)scene.replaceWith(canvas);
   scene=canvas;renderer=next;
   renderer.setQuality(save.quality);
+  renderer.setDisplay?.({resolution:save.resolution,reflections:save.reflections,hdr:save.hdr});
   void loadArchitectureMaterials().then(bytes=>{
     if(renderer===next)next.setMaterials(bytes);
   }).catch(error=>console.info('Architectural materials unavailable',error.message));

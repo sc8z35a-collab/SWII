@@ -14,7 +14,8 @@ export function createRegion(){
   let queue=[],running=0,scheduled=false,selection=null,revision=0;
   let worker=null,requestId=0,architecture=null,architectureJob=null,architectureRetry=0;
   const decoding=new Map();
-  const cache=tileCache(load,{capacity:68});
+  // Room for the widest view distance (about 60 tiles within 740 m) plus the way back.
+  const cache=tileCache(load,{capacity:110});
 
   function stopWorker(){
     worker?.terminate();
