@@ -314,7 +314,7 @@ def main():
         file = f"{sheet['id']}.webp"
         atlas.save(out / file, 'WEBP', quality=88, method=6)
         entries[sheet['id']] = {'id': sheet['id'], 'file': file, 'slots': [
-            {k: slot[k] for k in ('id', 'materials', 'meters', 'tint', 'roughness', 'relief', 'art') if k in slot}
+            {k: slot[k] for k in ('id', 'materials', 'meters', 'tint', 'roughness', 'relief', 'art', 'uses', 'rooms') if k in slot}
             | {'luma': luma, 'size': span} for slot, luma, span in zip(sheet['slots'], lumas, spans)]}
         print(f"  wrote {file} ({(out / file).stat().st_size // 1024} KB)")
 

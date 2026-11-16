@@ -1580,6 +1580,459 @@
      ]
     }
    ]
+  },
+  {
+   "id": "nature-ground",
+   "file": "nature-ground.webp",
+   "slots": [
+    {
+     "id": "mown-lawn",
+     "materials": [
+      47,
+      26
+     ],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.92,
+     "relief": 0.006,
+     "luma": 0.2073,
+     "size": [
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "dry-lawn",
+     "materials": [
+      47
+     ],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.93,
+     "relief": 0.006,
+     "luma": 0.28,
+     "size": [
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "black-soil",
+     "materials": [
+      9,
+      26
+     ],
+     "meters": 0.9,
+     "tint": 0.2,
+     "roughness": 0.95,
+     "relief": 0.008,
+     "luma": 0.0465,
+     "size": [
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "id": "fallen-leaves",
+     "materials": [
+      9
+     ],
+     "meters": 0.9,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.012,
+     "luma": 0.204,
+     "size": [
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "id": "canopy-leaves",
+     "materials": [
+      6,
+      45
+     ],
+     "meters": 0.8,
+     "tint": 0.3,
+     "roughness": 0.75,
+     "relief": 0.006,
+     "luma": 0.1921,
+     "size": [
+      0.8,
+      0.8
+     ]
+    },
+    {
+     "id": "zelkova-bark",
+     "materials": [],
+     "meters": 0.9,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.014,
+     "uses": [
+      "bark"
+     ],
+     "luma": 0.2562,
+     "size": [
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "id": "ground-moss",
+     "materials": [
+      47,
+      9
+     ],
+     "meters": 0.8,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.008,
+     "luma": 0.1616,
+     "size": [
+      0.8,
+      0.8
+     ]
+    },
+    {
+     "id": "wood-chips",
+     "materials": [
+      9
+     ],
+     "meters": 0.8,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.012,
+     "luma": 0.2423,
+     "size": [
+      0.8,
+      0.8
+     ]
+    },
+    {
+     "id": "weedy-lot",
+     "materials": [
+      47
+     ],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.92,
+     "relief": 0.008,
+     "luma": 0.221,
+     "size": [
+      1.0,
+      1.0
+     ]
+    }
+   ]
+  },
+  {
+   "id": "roads-roofs",
+   "file": "roads-roofs.webp",
+   "slots": [
+    {
+     "id": "asphalt-plain",
+     "materials": [
+      2,
+      27,
+      37
+     ],
+     "meters": 0.9,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.0035,
+     "luma": 0.1059,
+     "size": [
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "id": "asphalt-patched",
+     "materials": [
+      2,
+      37
+     ],
+     "meters": 1.4,
+     "tint": 0.2,
+     "roughness": 0.84,
+     "relief": 0.004,
+     "luma": 0.116,
+     "size": [
+      1.4,
+      1.4
+     ]
+    },
+    {
+     "id": "tactile-paving",
+     "materials": [],
+     "meters": 0.6,
+     "tint": 0.15,
+     "roughness": 0.7,
+     "relief": 0.006,
+     "uses": [
+      "tactile"
+     ],
+     "luma": 0.4368,
+     "size": [
+      0.591,
+      0.516
+     ]
+    },
+    {
+     "id": "concrete-curb",
+     "materials": [],
+     "meters": 1.0,
+     "tint": 0.25,
+     "roughness": 0.8,
+     "relief": 0.008,
+     "uses": [
+      "curb"
+     ],
+     "luma": 0.2509,
+     "size": [
+      0.966,
+      1.0
+     ]
+    },
+    {
+     "id": "grey-slabs",
+     "materials": [
+      1,
+      28,
+      38
+     ],
+     "meters": 1.2,
+     "tint": 0.25,
+     "roughness": 0.8,
+     "relief": 0.008,
+     "luma": 0.2633,
+     "size": [
+      1.2,
+      1.2
+     ]
+    },
+    {
+     "id": "roof-membrane",
+     "materials": [],
+     "meters": 2.4,
+     "tint": 0.3,
+     "roughness": 0.6,
+     "relief": 0.003,
+     "uses": [
+      "flat-roof"
+     ],
+     "luma": 0.2245,
+     "size": [
+      2.267,
+      1.427
+     ]
+    },
+    {
+     "id": "roof-gravel",
+     "materials": [],
+     "meters": 0.7,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.012,
+     "uses": [
+      "flat-roof"
+     ],
+     "luma": 0.23,
+     "size": [
+      0.7,
+      0.7
+     ]
+    },
+    {
+     "id": "folded-metal-roof",
+     "materials": [
+      14
+     ],
+     "meters": 1.2,
+     "tint": 0.3,
+     "roughness": 0.45,
+     "relief": 0.012,
+     "uses": [
+      "flat-roof"
+     ],
+     "luma": 0.36,
+     "size": [
+      0.831,
+      1.131
+     ]
+    },
+    {
+     "id": "drain-grating",
+     "materials": [
+      25
+     ],
+     "meters": 0.6,
+     "tint": 0.3,
+     "roughness": 0.5,
+     "relief": 0.012,
+     "luma": 0.1473,
+     "size": [
+      0.548,
+      0.48
+     ]
+    }
+   ]
+  },
+  {
+   "id": "interiors",
+   "file": "interiors.webp",
+   "slots": [
+    {
+     "id": "tatami",
+     "materials": [],
+     "meters": 0.9,
+     "tint": 0.15,
+     "roughness": 0.8,
+     "relief": 0.003,
+     "rooms": [
+      24
+     ],
+     "luma": 0.3744,
+     "size": [
+      0.855,
+      0.765
+     ]
+    },
+    {
+     "id": "shoji-paper",
+     "materials": [],
+     "meters": 0.9,
+     "tint": 0.4,
+     "roughness": 0.9,
+     "relief": 0.0008,
+     "rooms": [
+      43
+     ],
+     "luma": 0.7974,
+     "size": [
+      0.9,
+      0.9
+     ]
+    },
+    {
+     "id": "carpet-tiles",
+     "materials": [],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.95,
+     "relief": 0.003,
+     "uses": [
+      "office-floor"
+     ],
+     "luma": 0.1261,
+     "size": [
+      0.971,
+      0.945
+     ]
+    },
+    {
+     "id": "short-carpet",
+     "materials": [],
+     "meters": 0.8,
+     "tint": 0.3,
+     "roughness": 0.95,
+     "relief": 0.002,
+     "rooms": [
+      24
+     ],
+     "luma": 0.3652,
+     "size": [
+      0.8,
+      0.8
+     ]
+    },
+    {
+     "id": "woven-wallpaper",
+     "materials": [],
+     "meters": 0.6,
+     "tint": 0.6,
+     "roughness": 0.9,
+     "relief": 0.0008,
+     "rooms": [
+      43
+     ],
+     "luma": 0.8004,
+     "size": [
+      0.579,
+      0.584
+     ]
+    },
+    {
+     "id": "ceiling-tiles",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.3,
+     "roughness": 0.9,
+     "relief": 0.002,
+     "uses": [
+      "ceiling"
+     ],
+     "luma": 0.7944,
+     "size": [
+      1.2,
+      1.2
+     ]
+    },
+    {
+     "id": "kitchen-tiles",
+     "materials": [],
+     "meters": 0.6,
+     "tint": 0.2,
+     "roughness": 0.3,
+     "relief": 0.002,
+     "rooms": [
+      44
+     ],
+     "luma": 0.7899,
+     "size": [
+      0.493,
+      0.33
+     ]
+    },
+    {
+     "id": "walnut-floor",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.2,
+     "roughness": 0.45,
+     "relief": 0.002,
+     "rooms": [
+      24
+     ],
+     "luma": 0.0798,
+     "size": [
+      1.156,
+      1.2
+     ]
+    },
+    {
+     "id": "checker-vinyl",
+     "materials": [],
+     "meters": 1.2,
+     "tint": 0.25,
+     "roughness": 0.5,
+     "relief": 0.001,
+     "uses": [
+      "office-floor",
+      "platform"
+     ],
+     "rooms": [
+      24
+     ],
+     "luma": 0.5405,
+     "size": [
+      0.657,
+      0.66
+     ]
+    }
+   ]
   }
  ]
 }

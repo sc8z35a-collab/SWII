@@ -350,6 +350,15 @@ void main(){
   if(uKind==${KIND_IDS.box}&&!groundLike&&footprint<.06)n=bevelNormal(n,1.-smoothstep(.03,.06,footprint));
   vec3 geometryNormal=n;
   float roughness,cavity;
+  // Special places for generated textures: tree trunks, ceilings of furnished rooms, the metro
+  // platform's tactile strip and edge, and flat roof tops.
+  roomSurface=furnished;
+  if(uKind==${KIND_IDS.tube}&&((mat==0.&&style.r>style.b*1.15&&extent.y>1.6&&extent.x<1.2)||(mat==24.&&extent.y>1.2&&extent.x<1.2)))photoColumn=71;
+  else if(furnished&&n.y<-.9)photoColumn=72;
+  else if(uUnderground>.5&&mat==1.)photoColumn=74;
+  else if(uUnderground>.5&&mat==23.&&abs(n.y)<.5)photoColumn=75;
+  else if(uUnderground>.5&&mat==23.)photoColumn=77;
+  else if(uKind==${KIND_IDS.box}&&mat==18.&&n.y>.9)photoColumn=76;
   base=facadeMaterial(base,n,int(mat),era,footprint,roughness,cavity);
   float metal=0.,f0=.04,translucency=0.,sheen=0.,occlusion=cavity,windowMask=0.,share;
   vec3 emission=vec3(0.),windowColor=vec3(0.);
@@ -660,7 +669,7 @@ void main(){
       base*=.75+.35*leaflet;
     }
   }
-  if(uKind==${KIND_IDS.tube}&&mat==0.&&style.r>style.b*1.15&&extent.y>1.6&&extent.x<1.2){
+  if(!photoApplied&&uKind==${KIND_IDS.tube}&&mat==0.&&style.r>style.b*1.15&&extent.y>1.6&&extent.x<1.2){
     float a=atan(localPos.z,localPos.x);
     float bark=noise(vec2(a*6.,localPos.y*1.7))*.6+noise(vec2(a*18.,localPos.y*5.))*.4;
     base*=.6+bark*.6;

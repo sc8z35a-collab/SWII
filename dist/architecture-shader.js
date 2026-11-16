@@ -11,6 +11,10 @@ const vec3 surfaceScale[${surfaceProfiles.length}]=vec3[](${surfaceProfiles.map(
 // texture layers per material (-1 for none), row 2 holds each layer's width in meters, tint and mean
 // linear luminance, and row 3 its roughness and relief. A building keeps one variant on every part:
 // the choice hashes its position on a 24 m grid. Terrain triangles always use the first layer.
+// Set by the world fragment before facadeMaterial: a special place to texture (a column of the
+// table, -1 for none) and whether the surface belongs to a furnished room.
+int photoColumn=-1;
+bool roomSurface=false,photoApplied=false;
 // One of the layers listed in a table column, chosen by pick (0-1); -1 when the column is empty.
 int listedLayer(int column,float pick){
   if(uPhotoReady<.5)return -1;
@@ -38,6 +42,11 @@ vec3 photoMaterial(vec3 base,inout vec3 normal,int mat,int photo,float footprint
   vec3 up=ground?vec3(0.,0.,1.):vec3(0.,1.,0.);
   // Image rows run downward, so walls read the texture with up pointing to the top of the photo.
   vec2 uv=vec2(dot(wPos,tangent),-dot(wPos,up))/info.xy;
+  if(photoColumn==71){
+    // Bark wraps the trunk: a whole number of repeats around it, so the back has no seam.
+    float around=max(1.,floor(3.14159*max(extent.x,.12)/info.x+.5));
+    uv=vec2(atan(localPos.z,localPos.x)/6.2831853*around,-localPos.y/info.y);
+  }
   if(mat==14)uv=localPos.xz/info.xy;
   if(mat==${CERAMIC_SHELL})uv=vec2(wPos.x,wPos.z-wPos.y*.48)/info.xy;
   vec2 dx=dFdx(uv),dy=dFdy(uv);
@@ -64,7 +73,10 @@ vec3 photoMaterial(vec3 base,inout vec3 normal,int mat,int photo,float footprint
 }
 vec3 facadeMaterial(vec3 base,inout vec3 normal,int mat,int era,float footprint,out float roughness,out float cavity){
   roughness=.72;cavity=1.;
-  int photo=photoLayer(mat==5&&era>=4?33:mat);
+  int photo=photoColumn>=0?listedLayer(photoColumn,hash(floor(center.xz/24.)+3.1)):-1;
+  if(photo<0&&roomSurface&&mat>=0&&mat<64)photo=listedLayer(128+mat,hash(center.xz*.71+float(mat)));
+  if(photo<0)photo=photoLayer(mat==5&&era>=4?33:mat);
+  photoApplied=photo>=0;
   if(photo>=0)return photoMaterial(base,normal,mat,photo,footprint,roughness,cavity);
   int layer=mat>=0&&mat<${materialLayers.length}?surfaceMap[mat]:-1;
   if(mat==5&&era>=4)layer=4;
@@ -145,6 +157,9 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
   vec3 floorColor=office>.5?mix(vec3(.22,.23,.25),vec3(.35,.33,.30),pick3):
     mix(vec3(.42,.27,.16),vec3(.58,.44,.30),pick3);
   vec3 albedo;vec3 normal;float emissive=0.;
+  // Generated wall coverings and floors where they exist (columns 128+43 and 128+24, 72, 73).
+  vec3 paper=roomPicture(128+43,pick,fract(vec2(hp.x+hp.z,hp.y)/.9));
+  if(paper.x>=0.&&office<.5)wall=mix(wall,paper*1.12,.75);
   if(t==tz){
     albedo=wall;normal=vec3(0.,0.,-1.);
     vec2 q=vec2(hp.x/W,hp.y/H);
@@ -178,16 +193,20 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
   }else if(t==ty){
     if(safe.y<0.){
       albedo=floorColor;normal=vec3(0.,1.,0.);
+      vec3 floorPhoto=roomPicture(office>.5?73:128+24,pick3,fract(hp.xz/1.1));
       if(office<.5){
         float plank=fract(hp.x*4.2+floor(hp.z*.8+hash(vec2(floor(hp.x*4.2),5.))*3.)*.37);
         albedo*=.86+.18*hash(vec2(floor(hp.x*4.2),floor(hp.z*.8)))-.12*(1.-smoothstep(.0,.04,min(plank,1.-plank)));
+        if(floorPhoto.x>=0.)albedo=floorPhoto;
         float rug=step(abs(hp.x-W*.5),W*.28)*step(abs(hp.z-D*.45),D*.22);
         vec3 woven=roomPicture(68,pick,vec2((hp.x-W*.22)/(W*.56),(hp.z-D*.23)/(D*.44)));
         albedo=mix(albedo,woven.x>=0.?woven:mix(vec3(.55,.48,.40),vec3(.30,.36,.44),pick),rug*step(.3,pick2));
-      }else albedo*=.92+.1*noise(hp.xz*6.);
+      }else albedo=floorPhoto.x>=0.?floorPhoto:albedo*(.92+.1*noise(hp.xz*6.));
     }else{
       albedo=vec3(.84,.83,.80);normal=vec3(0.,-1.,0.);
       if(office>.5){
+        vec3 tiles=roomPicture(72,pick,fract(hp.xz/1.2));
+        if(tiles.x>=0.)albedo=tiles*1.1;
         vec2 g=fract(hp.xz/vec2(1.2,1.8));
         float panel=step(abs(g.x-.5),.22)*step(abs(g.y-.5),.16);
         emissive=panel*step(.18,pick3);
