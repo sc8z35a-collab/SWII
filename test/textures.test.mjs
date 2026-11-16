@@ -40,3 +40,19 @@ test('the photo table lists each material\'s textures and each texture\'s scale'
   assert.equal(cell(2,marble,0),3);assert.equal(cell(2,marble,2),Math.fround(.2));assert.equal(cell(3,marble,0),Math.fround(.18));
   assert.deepEqual(buildPhotoTable({}).slots,[]);
 });
+
+test('the shipped manifest matches the catalog and its atlases exist',()=>{
+  const url=new URL('../dist/materials/generated/manifest.json',import.meta.url);
+  let manifest;
+  try{manifest=JSON.parse(readFileSync(url,'utf8'));}catch{return;}
+  const byId=new Map(slots.map(slot=>[slot.id,slot]));
+  for(const sheet of manifest.sheets){
+    assert.ok(readFileSync(new URL('../dist/materials/generated/'+sheet.file,import.meta.url)).length>10000,sheet.file);
+    assert.equal(sheet.slots.length,9);
+    for(const slot of sheet.slots){
+      assert.deepEqual(slot.materials,byId.get(slot.id).materials,slot.id);
+      assert.ok(slot.size.every(n=>n>0)&&slot.luma>0,slot.id);
+    }
+  }
+  assert.ok(!JSON.stringify(manifest).includes('sk-'),'no key in the manifest');
+});

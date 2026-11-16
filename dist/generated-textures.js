@@ -17,8 +17,10 @@ export function buildPhotoTable(manifest){
     if(layer>=PHOTO_TABLE_WIDTH)break;
     slots.push({sheet:sheet.file,cell,id:slot.id});
     const at=(row,i)=>(row*PHOTO_TABLE_WIDTH+layer)*4+i;
+    // size: the tile's width and height in meters after cutting; older manifests give meters only.
     const meters=Number(slot.meters)>0?Number(slot.meters):2;
-    table[at(2,0)]=meters;table[at(2,1)]=meters;
+    const [width,height]=Array.isArray(slot.size)&&slot.size.every(n=>Number(n)>0)?slot.size.map(Number):[meters,meters];
+    table[at(2,0)]=width;table[at(2,1)]=height;
     table[at(2,2)]=Math.min(1,Math.max(0,Number(slot.tint)||0));
     table[at(2,3)]=Math.max(.005,Number(slot.luma)||.18);
     table[at(3,0)]=Math.min(.97,Math.max(.05,Number(slot.roughness)||.7));
