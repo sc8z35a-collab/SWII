@@ -23,15 +23,19 @@ const humanVertex=`#version 300 es
 precision highp float;
 precision highp int;
 ${instanceInputs}
-out vec3 wPos,wNormal,vBind;
+out vec3 wPos,wNormal,vBind,vBindNormal;
 flat out vec3 vSkin,vHair,vTop,vBottom,vShoes;
 flat out float vStyle,vSeed;
 out vec4 vParts;
 ${humanAnimation}
 void main(){
   float yaw=aX.x,scale=aX.y,build=aX.z;
-  float seed=fract(sin(dot(aCenter.xz,vec2(12.9898,78.233)))*43758.5453);
-  Pose P=makePose(aY.x,aY.y,aY.z,aZ.x,uTime,seed);
+  // Style bits 10-15 hold a head turn toward the viewer and bits 16-18 how much of it to use; only the
+  // fixed bits (clothing and body) feed the per-person seed, so it never changes while they look.
+  int bits=int(aStyle.w+.5);
+  float seed=fract(aZ.y*.000173+aStyle.x*.000317+aStyle.y*.000071+float(bits&1023)*.0617+aZ.z*.000043);
+  float look=(float(max((bits>>10)&63,1)-1)/31.-1.)*1.05,lookWeight=float((bits>>16)&7)/7.;
+  Pose P=makePose(aY.x,aY.y,aY.z,aZ.x,uTime,seed,look,lookWeight);
   mat3 RA,RB;vec3 TA,TB;
   boneTransform(int(aExtra.x+.5),P,RA,TA);
   boneTransform(int(aExtra.y+.5),P,RB,TB);
@@ -47,7 +51,7 @@ void main(){
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward);
   wPos=aCenter+orient*p*scale;
   wNormal=normalize(orient*n);
-  vBind=aPosition;
+  vBind=aPosition;vBindNormal=aNormal;
   vSkin=unpackColor(aZ.y);vHair=unpackColor(aZ.z);
   vTop=unpackColor(aStyle.x);vBottom=unpackColor(aStyle.y);vShoes=unpackColor(aStyle.z);
   vStyle=aStyle.w;vSeed=seed;
@@ -59,8 +63,9 @@ void main(){
 const humanFragment=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 precision highp sampler2DShadow;
-in vec3 wPos,wNormal,vBind;
+in vec3 wPos,wNormal,vBind,vBindNormal;
 flat in vec3 vSkin,vHair,vTop,vBottom,vShoes;
 flat in float vStyle,vSeed;
 in vec4 vParts;
@@ -69,8 +74,11 @@ ${glslLighting}
 vec3 lin(vec3 c){return pow(c,vec3(2.2));}
 float spot(vec2 p,vec2 c,vec2 r){vec2 q=(p-c)/r;return 1.-smoothstep(.6,1.,dot(q,q));}
 float line(float x,float w){return 1.-smoothstep(w*.5,w,abs(x));}
+// Cloth and skin coordinates in meters on the body: front and back faces take x, the sides z.
+vec2 bodyMeters(vec3 b){return vec2(abs(vBindNormal.x)>.7?b.z:b.x,-b.y);}
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
+  beginShading(wPos,n);
   if(dot(n,v)<-.2)n=-n;
   int style=int(vStyle+.5);
   int variant=(style>>8)&3;
@@ -83,12 +91,13 @@ void main(){
   float fine=1.-smoothstep(.004,.02,footprint);
   int zone=0;
   // Hairlines are drawn analytically in bind space so they stay smooth across triangles.
-  if(variant!=2&&b.y>1.52){
+  if(variant!=2&&b.y>(variant==1?1.4:1.52)){
     float hairline=1.632+.55*b.z;
-    float cap=smoothstep(-.004,.004,b.y-hairline);
+    float cap=b.y>1.52?smoothstep(-.004,.004,b.y-hairline):0.;
     float back=variant==1?step(b.z,.01)*step(1.42,b.y)*step(ax,.115):0.;
     float sideburn=step(.07,ax)*step(b.z,.01)*step(1.6,b.y);
-    part=max(cap,max(back,sideburn))>.5?1:(part==1?0:part);
+    float ear=variant==1?0.:step(.074,ax)*step(abs(b.y-1.641),.03)*step(abs(b.z+.006),.024);
+    part=max(cap,max(back,sideburn))*(1.-ear)>.5?1:(part==1?0:part);
   }else if(part==1)part=0;
   if(part==1)zone=4;
   else if(part==5)zone=5;
@@ -112,12 +121,17 @@ void main(){
     if(pale)albedo=mix(albedo,vec3(.32,.33,.34),.55);
     rough=.5;f0=.028;translucency=.1;
     albedo*=.94+.08*noise(b.xy*90.+vSeed*10.);
+    albedo=photoDetail(101,.5,bodyMeters(b)+vSeed*3.,albedo,.45);
     if(b.y>1.55&&b.z>.02){
       vec2 f=vec2(ax,b.y);
       float socket=spot(f,vec2(.031,1.664),vec2(.024,.016));
       ao*=1.-.38*socket;
-      float eye=spot(f,vec2(.031,1.664),vec2(.0125,.0068))*step(.066,b.z);
+      // Blinks last about 0.13 s, every three to six seconds depending on the person.
+      float period=3.2+vSeed*2.6;
+      float closed=step(1.-.13/period,fract(uTime/period+vSeed*13.));
+      float eye=spot(f,vec2(.031,1.664),vec2(.0125,.0068))*step(.066,b.z)*(1.-closed);
       float iris=spot(f,vec2(.031,1.6645),vec2(.0062,.0062))*eye;
+      albedo*=1.-.35*closed*spot(f,vec2(.031,1.6625),vec2(.013,.0018))*step(.066,b.z);
       albedo=mix(albedo,vec3(.62,.6,.57),eye);
       albedo=mix(albedo,lin(vHair)*.35+vec3(.008,.006,.004),iris);
       rough=mix(rough,.06,eye);
@@ -127,7 +141,7 @@ void main(){
       albedo=mix(albedo,albedo*vec3(.82,.5,.5),lips*.75);
       float cheek=spot(f,vec2(.04,1.625),vec2(.025,.02));
       albedo=mix(albedo,albedo*vec3(1.04,.92,.9),cheek*.4);
-      if(glow)emission+=vec3(1.,.08,.02)*iris*60.;
+      if(glow)emission+=vec3(1.,.08,.02)*iris*60.*(.72+.28*sin(uTime*5.5+vSeed*40.));
     }
     if(b.y>1.55&&b.z<.02&&b.y<1.66)ao*=.9;
   }else if(zone==1){
@@ -135,6 +149,10 @@ void main(){
     rough=.82;sheen=.6;
     float weave=noise(b.xy*vec2(700.,520.)+b.z*300.)*fine;
     albedo*=.95+weave*.1;
+    // Fabric photos: cotton, wool, knit or nylon (in that order in the table) by garment.
+    float cloth=part==3||jacket?(vSeed<.5?.375:.875):shirt?.125:(vSeed<.6?.125:.625);
+    albedo=photoDetail(98,cloth,bodyMeters(b),albedo,.85);
+    if(cloth>.75){rough=.45;sheen=.15;}
     float folds=sin(b.y*70.+sin(b.x*30.+b.z*20.)*2.)*.5+.5;
     ao*=.9+.1*folds;
     if(jacket&&b.z>.03){
@@ -163,6 +181,9 @@ void main(){
   }else if(zone==2){
     albedo=lin(vBottom);
     rough=.88;sheen=.45;
+    // Denim for blue or dark trousers, wool for the rest and for skirts and coats.
+    bool jeans=part==0&&vBottom.b>=vBottom.r*.95;
+    albedo=photoDetail(99,jeans?.25:.75,bodyMeters(b),albedo,.85);
     float twill=noise(vec2(b.x*420.+b.y*420.,b.z*400.))*fine;
     albedo*=.93+twill*.12;
     if(part==0){
@@ -184,6 +205,7 @@ void main(){
   }else if(zone==3){
     albedo=lin(vShoes);
     rough=.42;
+    albedo=photoDetail(100,fract(vSeed*7.3),bodyMeters(b),albedo,.8);
     float sole=1.-smoothstep(.016,.022,b.y);
     albedo=mix(albedo,luminance(albedo)>.2?vec3(.05):vec3(.8,.78,.74),sole);
     rough=mix(rough,.8,sole);
@@ -192,6 +214,7 @@ void main(){
   }else if(zone==4){
     albedo=lin(vHair);
     rough=.5;
+    albedo=photoDetail(102,.5,vec2(atan(b.x,b.z)/6.2831853*5.*.12,-b.y),albedo,.8);
     float strands=noise(vec2(atan(b.x,b.z)*60.,b.y*14.))*.5+noise(vec2(atan(b.x,b.z)*160.,b.y*30.))*.5;
     albedo*=.75+.5*strands;
     ao*=.75+.25*strands;
@@ -202,7 +225,7 @@ void main(){
     albedo=mix(albedo,vec3(.02),band);
   }
   float NoL=max(dot(n,uSun),0.);
-  float shadow=sunShadow(wPos,n,NoL)*cloudShadow(wPos,uSun);
+  float shadow=sunShadow(wPos,n,NoL)*(uQuality>.5?cloudShadow(wPos,uSun):1.);
   float share;
   vec3 color=shadeSurface(albedo,n,v,rough,0.,f0,shadow,ao,translucency,sheen,share);
   if(zone==0){
@@ -225,12 +248,13 @@ const carVertex=`#version 300 es
 precision highp float;
 precision highp int;
 ${instanceInputs}
-out vec3 wPos,wNormal,vBind;
+out vec3 wPos,wNormal,vBind,vBindNormal;
 out float vGlass;
 flat out vec3 vPaint;
 flat out float vFlags,vPart;
 mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}
 mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}
+mat3 rotZ(float a){float c=cos(a),s=sin(a);return mat3(c,s,0.,-s,c,0.,0.,0.,1.);}
 void main(){
   vec3 p=aPosition,n=aNormal;
   float yaw=aX.x,pitch=aX.y,spin=aX.z,steer=aY.z;
@@ -240,12 +264,19 @@ void main(){
     mat3 r=rotX(spin);
     if(p.z>0.)r=rotY(steer)*r;
     p=c+r*(p-c);n=r*n;
+    vBind=c+rotX(spin)*(aPosition-c);vBindNormal=rotX(spin)*aNormal;
+  }else{
+    // The body rides on its springs: it pitches and rolls about the axles while the wheels stay down.
+    vec3 pivot=vec3(0.,${WHEEL.y.toFixed(3)},0.);
+    mat3 r=rotZ(aZ.y)*rotX(-aZ.x);
+    p=pivot+r*(p-pivot);n=r*n;
+    vBind=aPosition;vBindNormal=aNormal;
   }
   vec3 forward=vec3(sin(yaw),0.,-cos(yaw)),left=-vec3(cos(yaw),0.,sin(yaw));
   mat3 orient=mat3(left,vec3(0.,1.,0.),forward)*rotX(-pitch);
   wPos=aCenter+orient*p;
   wNormal=normalize(orient*n);
-  vBind=aPosition;vGlass=aExtra.y;
+  vGlass=aExtra.y;
   vPaint=unpackColor(aY.x);vFlags=aY.y;vPart=float(part);
   gl_Position=uVP*vec4(wPos,1.);
 }`;
@@ -253,8 +284,9 @@ void main(){
 const carFragment=`#version 300 es
 precision highp float;
 precision highp int;
+precision highp sampler2D;
 precision highp sampler2DShadow;
-in vec3 wPos,wNormal,vBind;
+in vec3 wPos,wNormal,vBind,vBindNormal;
 in float vGlass;
 flat in vec3 vPaint;
 flat in float vFlags,vPart;
@@ -277,9 +309,10 @@ vec3 streetReflection(vec3 r,float rough){
 }
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
+  beginShading(wPos,n);
   if(dot(n,v)<-.2)n=-n;
   int part=int(vPart+.5),flags=int(vFlags+.5);
-  bool wreck=(flags&1)!=0;
+  bool wreck=(flags&1)!=0,brake=(flags&2)!=0,reverse=(flags&4)!=0;
   vec3 b=vBind;
   float ax=abs(b.x);
   vec3 paint=lin(vPaint);
@@ -292,6 +325,8 @@ void main(){
     float r=length(q),a=atan(q.y,q.x);
     float tread=step(.33,r)*step(.5,fract(a*24.));
     albedo*=1.-.35*tread;
+    // Tread photo: exactly six repeats around the tire, so it closes without a seam.
+    albedo=photoDetail(93,.5,vec2(b.x,a/6.2831853*6.*.35),albedo,step(.3,r)*.9);
     float wall=smoothstep(.27,.29,r)*(1.-smoothstep(.3,.32,r));
     albedo+=vec3(.012)*wall;
   }else if(part==2){
@@ -314,16 +349,30 @@ void main(){
       float hex=step(.55,fract(b.x*38.+step(.5,fract(b.y*30.))*.5))*step(.4,fract(b.y*30.));
       albedo=mix(vec3(.02),vec3(.08),hex);metal=.3;rough=.45;coat=0.;ao=.6;
     }
+    // Metallic flakes in the paint, finest close up.
+    vec3 bn=vBindNormal;
+    vec2 panel=abs(bn.x)>.6?b.zy:abs(bn.y)>.6?b.xz:b.xy;
+    albedo=photoDetail(92,.5,panel,albedo,(1.-glass)*.6);
+    if(b.y<.34&&abs(b.z)<2.05)albedo=photoDetail(95,.5,panel,albedo,.8);
     float valance=step(1.98,abs(b.z))*step(b.y,.4);
     albedo=mix(albedo,vec3(.03),valance);coat*=1.-valance;metal*=1.-valance;
+    // Road grime: the sills, bumpers and the paint around the wheels are dulled by dust and spray.
+    float arch=1.-smoothstep(.3,.62,length(vec2(b.y-${WHEEL.y.toFixed(3)},abs(b.z)-${WHEEL.z.toFixed(3)})));
+    float grime=max(1.-smoothstep(.22,.55,b.y),arch*.8)*(.55+.45*noise(b.xz*7.+b.y*4.))*(1.-glass);
+    albedo=mix(albedo,vec3(.075,.068,.06),grime*.38);rough=mix(rough,.78,grime*.6);coat*=1.-grime*.55;
     float head=front*box2(vec2(ax,b.y),vec2(.44,.6),vec2(.82,.73),.008);
     if(head>.5){
       float reflector=smoothstep(.025,.04,length(vec2(fract((ax-.44)/.19)-.5,(b.y-.665)/.065*.5)));
       albedo=mix(vec3(.85),vec3(.55),reflector);metal=.9;rough=.12;coat=1.;
+      albedo=photoDetail(97,.5,vec2((ax-.44)/.38,(b.y-.6)/.13)*.3,albedo,.7);
       emission+=vec3(1.,.96,.9)*step(.62,b.y)*step(b.y,.632)*3.;
     }
     float tail=rear*box2(vec2(ax,b.y),vec2(.36,.72),vec2(.84,.86),.008);
-    if(tail>.5){albedo=vec3(.32,.012,.01);metal=0.;rough=.12;coat=1.;emission+=vec3(.9,.02,.01)*.6;}
+    if(tail>.5){
+      albedo=vec3(.32,.012,.01);metal=0.;rough=.12;coat=1.;
+      emission+=vec3(.9,.02,.01)*(brake?9.:.6);
+      if(reverse&&ax<.5){albedo=vec3(.8);emission=vec3(1.,.97,.92)*6.;}
+    }
     float plate=(front+rear)*box2(vec2(ax,b.y),vec2(-1.,.46),vec2(.255,.6),.004);
     if(plate>.5){
       albedo=vec3(.82,.82,.78);metal=0.;rough=.4;coat=.5;
@@ -335,7 +384,7 @@ void main(){
       seams*=step(.34,b.y)*step(b.y,.97);
       ao*=1.-.6*min(seams,1.);
       float handle=box2(vec2(b.z,b.y),vec2(.18,.855),vec2(.34,.885),.004)+box2(vec2(b.z,b.y),vec2(-.82,.855),vec2(-.66,.885),.004);
-      if(handle>.5){albedo=vec3(.7);metal=1.;rough=.2;}
+      if(handle>.5){albedo=photoDetail(96,.5,vec2(b.z,b.y)*.5,vec3(.7),.8);metal=1.;rough=.2;}
     }
     albedo=mix(albedo,vec3(.025),trim);coat*=1.-trim;metal*=1.-trim;
   }
@@ -347,7 +396,7 @@ void main(){
   }
   vec3 color;
   float NoL=max(dot(n,uSun),0.);
-  float shadow=sunShadow(wPos,n,NoL)*cloudShadow(wPos,uSun);
+  float shadow=sunShadow(wPos,n,NoL)*(uQuality>.5?cloudShadow(wPos,uSun):1.);
   float share;
   float NoV=max(dot(n,v),1e-3);
   if(glass>.5){
@@ -356,6 +405,7 @@ void main(){
     vec3 h=normalize(v+uSun);
     vec3 glint=uSunColor*D_GGX(max(dot(n,h),0.),.0009)*V_SmithGGX(NoV,NoL,.0009)*F*NoL*shadow;
     vec3 inside=vec3(.004,.0045,.005)*(uAmbUp*8.+uSunColor*.3);
+    inside=photoDetail(94,.5,vec2(b.x,b.y)*1.5,inside,.9);
     color=mix(inside,streetReflection(r,0.),F)+glint;
     share=.3;
   }else{
@@ -431,6 +481,7 @@ vec3 emboss(vec3 n,float height,float strength){
 }
 void main(){
   vec3 n=normalize(wNormal),v=normalize(uEye-wPos);
+  beginShading(wPos,n);
   if(dot(n,v)<-.25)n=-n;
   int kind=int(vState.x+.5),part=int(vData.x+.5);
   float alert=vState.y,stun=vState.z,seed=vState.w,rim=vData.w,hurt=vHurt;
@@ -577,7 +628,7 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     faceDepth:compileProgram(gl,faceVertex,depthFragment)
   };
   const meshes=new Map(),buckets=new Map();
-  let humans=null,cars=null,faces=null,ready=false;
+  let humans=null,cars=null,faces=null,shadowOnly=null,ready=false;
 
   function addMesh(key,{vertices,indices}){
     const buffer=gl.createBuffer(),elements=gl.createBuffer();
@@ -590,20 +641,23 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     meshes.set(key,{buffer,elements,count:indices.length,type:wide?gl.UNSIGNED_INT:gl.UNSIGNED_SHORT});
   }
   function received(list){
-    for(const {key,mesh} of list)addMesh(key,mesh);
+    for(const {key,mesh} of list)if(!meshes.has(key))addMesh(key,mesh);
     ready=['human0-0','human1-0','human2-0','car-0','face0-0','face1-0','face2-0'].every(k=>meshes.has(k));
   }
   // The meshes are built off the main thread; the detailed path switches on once the
-  // low-detail bodies have arrived.
-  try{
-    const worker=new Worker(new URL('./model-worker.js',import.meta.url),{type:'module'});
-    worker.onmessage=({data})=>{received(data.meshes);if(data.done)worker.terminate();};
-    worker.onerror=()=>{worker.terminate();buildLocally();};
-  }catch{buildLocally();}
+  // low-detail bodies have arrived. A failing worker falls back to building only what is missing.
+  let worker=null,disposed=false;
   async function buildLocally(){
-    const {buildModels}=await import('./model-worker.js');
-    for(const list of buildModels())received(list);
+    try{
+      const {buildModels}=await import('./model-worker.js');
+      for(const list of buildModels()){if(disposed)return;received(list);}
+    }catch(error){console.info('Detailed actor meshes unavailable',error.message);}
   }
+  try{
+    worker=new Worker(new URL('./model-worker.js',import.meta.url),{type:'module'});
+    worker.onmessage=({data})=>{if(disposed)return;received(data.meshes);if(data.done){worker.terminate();worker=null;}};
+    worker.onerror=worker.onmessageerror=()=>{worker?.terminate();worker=null;if(!disposed)void buildLocally();};
+  }catch{void buildLocally();}
 
   function bucket(key,meshKey){
     let entry=buckets.get(key);
@@ -644,24 +698,32 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     gl.drawElementsInstanced(gl.TRIANGLES,entry.mesh.count,entry.mesh.type,0,entry.count);
   }
   const variantOf=(source,i)=>(Math.round(source[i*16+15])>>8)&3;
-  // Sorts actors into variant and detail buckets and uploads their instances.
-  function prepare(eye,shadow){
+  // Bounding sphere test against frustum planes (from frustumPlanes()).
+  const visible=(planes,x,y,z,radius)=>!planes||planes.every(([a,b,c,d])=>a*x+b*y+c*z+d>=-radius*Math.hypot(a,b,c));
+  // Sorts actors into variant and detail buckets, skips those outside the view and uploads them.
+  function prepare(eye,shadow,planes){
     const groups=[];
-    if(humans?.length){
+    // Bodies that only cast shadows (the player's own) join the shadow passes.
+    const people=shadow&&shadowOnly?.length?(humans??[]).concat(shadowOnly):humans;
+    if(people?.length){
       const lists=new Map();
-      for(let i=0;i<humans.length/16;i++){
-        const dx=humans[i*16]-eye[0],dz=humans[i*16+2]-eye[2],scale=humans[i*16+4];
+      for(let i=0;i<people.length/16;i++){
+        const x=people[i*16],y=people[i*16+1],z=people[i*16+2],scale=people[i*16+4];
+        if(!visible(planes,x,y+.9*scale,z,1.2*scale))continue;
+        const dx=x-eye[0],dz=z-eye[2],variant=variantOf(people,i);
         const near=!shadow&&dx*dx+dz*dz<(26*scale)**2*(mobile?.6:1);
-        const key='human'+variantOf(humans,i)+'-'+(near&&meshes.has('human'+variantOf(humans,i)+'-1')?1:0);
+        const key='human'+variant+'-'+(near&&meshes.has('human'+variant+'-1')?1:0);
         if(!lists.has(key))lists.set(key,[]);
         lists.get(key).push(i);
       }
-      for(const [key,indices] of lists)groups.push({program:'human',key:(shadow?'s':'')+key,meshKey:key,source:humans,indices});
+      for(const [key,indices] of lists)groups.push({program:'human',key:(shadow?'s':'')+key,meshKey:key,source:people,indices});
     }
     if(cars?.length){
       const near=[],far=[];
       for(let i=0;i<cars.length/16;i++){
-        const dx=cars[i*16]-eye[0],dz=cars[i*16+2]-eye[2];
+        const x=cars[i*16],y=cars[i*16+1],z=cars[i*16+2];
+        if(!visible(planes,x,y+.7,z,2.6))continue;
+        const dx=x-eye[0],dz=z-eye[2];
         (!shadow&&dx*dx+dz*dz<55*55&&meshes.has('car-1')?near:far).push(i);
       }
       if(near.length)groups.push({program:'car',key:(shadow?'s':'')+'car-1',meshKey:'car-1',source:cars,indices:near});
@@ -686,10 +748,11 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   }
   return {
     get ready(){return ready;},
-    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;faces=walkers?.faces??null;},
-    draw({vp,eye,time,send}){
+    programs:Object.values(programs),
+    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;faces=walkers?.faces??null;shadowOnly=walkers?.shadowHumans??null;},
+    draw({vp,eye,time,send,planes}){
       if(!ready)return;
-      const groups=prepare(eye,false);
+      const groups=prepare(eye,false,planes);
       for(const name of ['human','car','face']){
         const list=groups.filter(g=>g.program===name&&g.entry);
         if(!list.length)continue;
@@ -704,9 +767,9 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
       }
       gl.bindVertexArray(null);
     },
-    drawShadows(matrix,time,eye){
+    drawShadows(matrix,time,eye,planes){
       if(!ready)return;
-      const groups=prepare(eye??[0,0,0],true);
+      const groups=prepare(eye??[0,0,0],true,planes);
       for(const name of ['human','car','face']){
         const list=groups.filter(g=>g.program===name&&g.entry);
         if(!list.length)continue;
@@ -717,6 +780,13 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
         for(const g of list)drawBucket(g.entry);
       }
       gl.bindVertexArray(null);
+    },
+    dispose(){
+      disposed=true;worker?.terminate();worker=null;
+      for(const entry of buckets.values()){gl.deleteVertexArray(entry.vao);gl.deleteBuffer(entry.buffer);}
+      for(const mesh of meshes.values()){gl.deleteBuffer(mesh.buffer);gl.deleteBuffer(mesh.elements);}
+      for(const program of Object.values(programs))try{gl.deleteProgram(program.program);}catch{}
+      buckets.clear();meshes.clear();ready=false;
     }
   };
 }

@@ -1,13 +1,13 @@
 // Sound effects are synthesized on the spot, so nothing has to be downloaded.
 export function createSound(){
-  let context=null,noise=null,master=null;
+  let context=null,noise=null,master=null,volume=.7;
   function ready(){
     if(context)return context.state==='running';
     const Audio=globalThis.AudioContext??globalThis.webkitAudioContext;
     if(!Audio)return false;
     try{
       context=new Audio();
-      master=context.createGain();master.gain.value=.5;master.connect(context.destination);
+      master=context.createGain();master.gain.value=.5*volume*volume/.49;master.connect(context.destination);
       const length=Math.floor(context.sampleRate*.6),buffer=context.createBuffer(1,length,context.sampleRate),data=buffer.getChannelData(0);
       for(let i=0;i<length;i++)data[i]=Math.random()*2-1;
       noise=buffer;
@@ -36,6 +36,8 @@ export function createSound(){
   const play=effect=>(...args)=>{if(ready())try{effect(...args);}catch{}};
   return {
     unlock,
+    // Follows the volume setting (0-1); the default .7 keeps the original level.
+    setVolume(value){volume=Math.min(1,Math.max(0,value));if(master)master.gain.value=.5*volume*volume/.49;},
     // Three barrels at once: a sharp crack, a body and a low thump, each slightly detuned.
     shot:play(()=>{
       for(let i=0;i<3;i++){

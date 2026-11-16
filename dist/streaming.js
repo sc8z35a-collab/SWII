@@ -53,12 +53,19 @@ export function createRegion(){
     return tile??prepareVisualTile(payload,ix,iz);
   }
 
+  // Fetch priority hint: the ground around the viewer first, the far ring behind other requests.
+  function priority(ix,iz){
+    if(!selection)return 'auto';
+    const [a,b]=tileOrigin(ix,iz);
+    const distance=Math.hypot(a+TILE_SIZE*.5-selection.x,b+TILE_SIZE*.5-selection.z);
+    return distance<TILE_SIZE*1.1?'high':distance>TILE_SIZE*2.2?'low':'auto';
+  }
   async function download(job){
     const {ix,iz,controller}=job;
     for(let attempt=0;attempt<2;attempt++){
       try{
         const payload=await withDeadline(6500,async signal=>{
-          const response=await fetch(tilePath(ix,iz),{cache:attempt?'reload':'default',signal});
+          const response=await fetch(tilePath(ix,iz),{cache:attempt?'reload':'default',signal,priority:priority(ix,iz)});
           if(!response.ok)throw Error('Tile '+ix+','+iz+' unavailable');
           return response.arrayBuffer();
         },controller.signal);
@@ -193,6 +200,11 @@ export function createRegion(){
     get revision(){return revision;},
     get towers(){return architecture?.towers??[];},
     get pedestrians(){return architecture?.pedestrians??[];},
-    nearby(x,z,radius){return tilesAround(x,z,radius).map(([ix,iz])=>cache.peek(ix,iz)).filter(Boolean);}
+    nearby(x,z,radius){return tilesAround(x,z,radius).map(([ix,iz])=>cache.peek(ix,iz)).filter(Boolean);},
+    // Share of the tiles within radius that are loaded, for the loading screen.
+    progress(x,z,radius){
+      const ids=tilesAround(x,z,radius);
+      return ids.length?ids.filter(([ix,iz])=>cache.peek(ix,iz)).length/ids.length:1;
+    }
   };
 }

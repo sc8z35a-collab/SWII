@@ -4,7 +4,7 @@ import {clamp,dot,length,normalize,polygonize,sdCapsule,sdEllipsoid,sdRoundCone,
 // Three bodies are modelled: trousers, skirt with long hair, and a long coat with a hat.
 const J={
   pelvis:[0,.965,0],spine:[0,1.07,0],neck:[0,1.455,-.02],crown:[0,1.75,0],
-  shoulder:[.186,1.405,-.026],elbow:[.232,1.13,-.04],wrist:[.252,.877,-.006],palm:[.258,.72,.014],
+  shoulder:[.186,1.405,-.026],elbow:[.242,1.13,-.04],wrist:[.27,.877,-.006],palm:[.281,.72,.014],
   hip:[.095,.94,0],knee:[.1,.51,.016],ankle:[.103,.092,-.022],toe:[.108,.03,.16]
 };
 const flip=p=>[-p[0],p[1],p[2]];
@@ -55,18 +55,18 @@ function primitives(variant){
   for(const side of [1,-1]){
     const b=side>0?0:3,m=p=>mx(p,side);
     put(3+b,0,.035,E(m([.176,1.378,-.022]),female?[.05,.068,.056]:[.058,.075,.064]));
-    put(3+b,0,.02,C(m([.186,1.395,-.026]),m([.232,1.13,-.04]),female?.044:.05,female?.034:.039));
-    put(4+b,0,.02,C(m([.232,1.13,-.04]),m([.252,.879,-.006]),female?.034:.038,.026));
-    put(5+b,0,.016,E(m([.258,.802,.008]),[.022,.07,.043]));
-    put(5+b,0,.01,C(m([.252,.853,.03]),m([.247,.802,.05]),.011));
+    put(3+b,0,.02,C(m([.186,1.395,-.026]),m([.242,1.13,-.04]),female?.044:.05,female?.034:.039));
+    put(4+b,0,.02,C(m([.242,1.13,-.04]),m([.27,.879,-.006]),female?.034:.038,.026));
+    put(5+b,0,.016,E(m([.279,.802,.008]),[.022,.07,.043]));
+    put(5+b,0,.01,C(m([.27,.853,.03]),m([.264,.802,.05]),.011));
     put(9+b,0,.03,C(m([.095,.945,0]),m([.1,.51,.016]),female?.09:.086,.054));
     put(10+b,0,.02,C(m([.1,.51,.016]),m([.103,.1,-.02]),.052,.034));
     put(10+b,0,.025,E(m([.104,.36,-.028]),[.048,.098,.049]));
     put(11+b,PART.shoe,.012,cut(C(m([.103,.062,-.048]),m([.108,.042,.145]),.05,.037),p=>-p[1]));
   }
-  if(female)put(0,PART.skirt,0,cut(C([0,1.03,-.006],[0,.6,-.01],.15,.235),p=>.585-p[1]));
+  if(female)put(0,PART.skirt,0,cut(C([0,1.03,-.006],[0,.6,-.01],.15,.222),p=>.585-p[1]));
   if(coat){
-    put(1,PART.coat,0,cut(C([0,1.3,-.012],[0,.5,-.016],.188,.24),p=>.47-p[1]));
+    put(0,PART.coat,0,cut(cut(C([0,1.06,-.012],[0,.56,-.016],.165,.215),p=>.575-p[1]),p=>p[1]-1.08));
     put(2,PART.hat,.01,both(C([0,1.712,-.01],[0,1.8,-.012],.089,.08),E([0,1.718,-.01],[.165,.011,.172])));
   }else{
     put(2,PART.hair,.008,cut(E([0,1.672,-.012],[.084,.104,.103]),p=>(1.632+.55*p[2]-p[1])/1.14));
@@ -85,22 +85,17 @@ function lowerBound(item,p){
 }
 
 function weightsFor(p,bone){
-  const blend=(target,signed,reach)=>{
-    const r=target.reach||.06;
-    const radial=length(sub(sub(p,target.pivot),target.axis.map(v=>v*signed)));
-    const limit=1-smoothstep(target.reach?target.reach:.5,(target.reach?target.reach:.5)+.08,radial);
-    return smoothstep(-r*.6,r*.6,signed)*limit;
-  };
   const self=BONES[bone];
   let other=bone,w=0;
   if(self.parent>=0){
-    const s=dot(sub(p,self.pivot),self.axis);
-    const toward=1-blend(self,s);
+    const r=self.reach||.06,s=dot(sub(p,self.pivot),self.axis);
+    const toward=1-smoothstep(-r*.6,r*.6,s);
     if(toward>w){w=toward;other=self.parent;}
   }
   for(const child of children[bone]){
-    const c=BONES[child],s=dot(sub(p,c.pivot),c.axis);
-    const toward=blend(c,s);
+    const c=BONES[child],r=c.reach||.06,s=dot(sub(p,c.pivot),c.axis);
+    const near=1-smoothstep(r*.9,r*1.5,length(sub(p,c.pivot)));
+    const toward=smoothstep(-r*.6,r*.6,s)*near;
     if(toward>w){w=toward;other=child;}
   }
   return [bone,other,Math.min(w,1)];
@@ -131,8 +126,9 @@ export function buildHuman(variant,detail=1){
     }
     let bone=primitive.bone;
     if(primitive.part===PART.skirt||primitive.part===PART.coat){
-      const side=p[0]>0?9:12,low=smoothstep(.95,.6,p[1])*clamp(Math.abs(p[0])/.08,0,1);
-      return [0,side,low*.35,primitive.part];
+      // Cloth below the hips follows the nearer leg more and more toward the hem.
+      const side=p[0]>0?9:12,low=smoothstep(.98,.6,p[1])*clamp(Math.abs(p[0])/.09,0,1);
+      return [0,side,low*.7,primitive.part];
     }
     const [a,b,w]=weightsFor(p,bone);
     return [a,b,w,primitive.part];
@@ -145,13 +141,13 @@ const glslConst=v=>`vec3(${v.map(n=>n.toFixed(4)).join(',')})`;
 // Procedural gait: the pose is evaluated per vertex from the walk phase, gait weight and stride.
 export const humanAnimation=`
 const vec3 BONE_PIVOT[15]=vec3[](${BONES.map(b=>glslConst(b.pivot)).join(',')});
-const int BONE_PARENT[15]=int[](${BONES.map(b=>b.parent).join(',')});
 mat3 rotX(float a){float c=cos(a),s=sin(a);return mat3(1.,0.,0.,0.,c,s,0.,-s,c);}
 mat3 rotY(float a){float c=cos(a),s=sin(a);return mat3(c,0.,-s,0.,1.,0.,s,0.,c);}
 mat3 rotZ(float a){float c=cos(a),s=sin(a);return mat3(c,s,0.,-s,c,0.,0.,0.,1.);}
 float wrapAngle(float a){return mod(a+3.14159265,6.2831853)-3.14159265;}
 struct Pose{float hip[2];float knee[2];float ankle[2];float arm[2];float elbow[2];float twist,lean,bob,sway,breath,reach,headTurn;};
-Pose makePose(float phase,float gait,float stride,float pose,float time,float seed){
+// look: head turn toward something (radians, positive to the body's left) blended in by lookWeight.
+Pose makePose(float phase,float gait,float stride,float pose,float time,float seed,float look,float lookWeight){
   Pose P;
   float run=smoothstep(1.7,2.5,stride)*gait;
   float amp=asin(clamp(stride/(4.*.845),0.,.82))*gait;
@@ -171,7 +167,7 @@ Pose makePose(float phase,float gait,float stride,float pose,float time,float se
   P.sway=-.018*gait*cos(phase)*(1.-run*.6)+(1.-gait)*.01*sin(time*.45+seed*6.);
   P.breath=sin(time*1.7+seed*9.)*(1.-gait*.6);
   P.reach=pose;
-  P.headTurn=(1.-gait)*.35*sin(time*.23+seed*17.)*smoothstep(.2,.9,sin(time*.11+seed*5.));
+  P.headTurn=mix((1.-gait)*.35*sin(time*.23+seed*17.)*smoothstep(.2,.9,sin(time*.11+seed*5.)),look,lookWeight);
   return P;
 }
 void rotateAbout(inout mat3 R,inout vec3 T,vec3 pivot,mat3 local){
@@ -187,7 +183,7 @@ void boneTransform(int bone,Pose P,out mat3 R,out vec3 T){
     int side=bone>=12?1:0,local=bone-9-side*3;
     rotateAbout(R,T,BONE_PIVOT[9+side*3],rotX(-P.hip[side])*rotZ((side==0?1.:-1.)*.025));
     if(local>=1)rotateAbout(R,T,BONE_PIVOT[10+side*3],rotX(P.knee[side]));
-    if(local>=2)rotateAbout(R,T,BONE_PIVOT[11+side*3],rotX(-P.ankle[side]+P.hip[side]-P.knee[side]*.0));
+    if(local>=2)rotateAbout(R,T,BONE_PIVOT[11+side*3],rotX(P.hip[side]-P.knee[side]*.8-P.ankle[side]));
     return;
   }
   rotateAbout(R,T,BONE_PIVOT[1],rotY(-P.twist*2.2)*rotX(P.lean+.012*P.breath));

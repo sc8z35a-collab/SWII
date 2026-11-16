@@ -4,7 +4,7 @@ import {districtAt,toGlobal,rawHeight,seascape} from './geography.js';
 import {createRegion} from './streaming.js';
 import {createJourney} from './journey.js';
 import {MOVE_INTERVAL,MAX_BATCH_MS,LOOK_SPEED,cityById,terrainSampler,simulate,heading,clamp,frameInputs,idleDrive,keepCameraOutOfWalls} from './physics.js';
-import {peopleMeshes} from './people.js';
+import {humanInstance,peopleMeshes} from './people.js';
 import {sampleHeight,terrainWater} from './tiles.js';
 import {clampPitch} from './checkpoint.js';
 import {progressKey,readProgress,writeProgress} from './progress.js';
@@ -18,13 +18,16 @@ import {playerFloor,resolveTransport,transportDestination} from './transport.js'
 import {createMission,missionPlazaFloor,missionSpawn,missionTerminal} from './mission.js';
 import {ASCENT_MS,BOOK_TARGET,EVACUATION_MS,FIRE_INTERVAL,PLAYER_HEIGHT,SURVIVAL_MS,launchHeight,launchSite} from './mission-layout.js';
 import {createVisibility} from './visibility.js';
-import {drawHeldGun,drawMission,requestLaunchAssembly,updateVehicleModel} from './mission-scene.js';
+import {drawHeldGun,drawMission,enemyGait,missionLight,requestLaunchAssembly,updateVehicleModel} from './mission-scene.js';
 import {missionData} from './mission-data.js';
 import {nearVehicle} from './driving.js';
 import {RD2,muzzleDeceleration} from './ballistics.js';
 import {ACTIVE_RANGE} from './pursuit.js';
 import {distanceToBounds} from './mesh-batches.js';
 import {createSound} from './sound.js';
+import {drawBirds} from './birds.js';
+import {createAudio} from './audio.js';
+import {loadGeneratedTextures} from './generated-textures.js';
 const $=id=>document.getElementById(id);
 const hardwareScene=$('scene');
 let scene=hardwareScene,rendererGeneration=0;
@@ -47,6 +50,10 @@ const sight=createVisibility(async path=>{
   if(!response.ok)throw Error('Visibility tile unavailable');
   return response;
 },48);
+const audio=createAudio();
+audio.setVolume(save.volume);
+sound.setVolume(save.volume);
+$('fps').hidden=!save.showFps;
 let mission=createMission(sight,localRun?.mission),missionView=mission.view(),previousView=null,viewSince=0;
 let lastEvent=missionView.event?.id??0,damageAt=-Infinity,prefetchAt=0,cloudStarted=false,missionCatch=false;
 let world,renderer,terrain,active=false,travelling=false,arrivalReady=false;
@@ -64,7 +71,10 @@ let shoreX=Infinity,shoreZ=Infinity;
 const animationEpoch=(Date.now()-performance.now())/1000;
 const coarsePointer=matchMedia('(pointer:coarse)'),reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const keys=new Set();
-let compassAngle=-1;
+let compassAngle=-1,padFire=false,driveInput={},shownHealth=-1,shownDamage=-1,stepDistance=0,travelTarget=null;
+// Gamepad state: stick movement, held run/brake and edge-triggered buttons.
+const pad={move:[0,0],run:false,buttons:[]};
+const healthPips=[...$('health').querySelectorAll('i')];
 let trigger=false,lastShotAt=-Infinity,kick=0,flashUntil=0,seenShots=0,seenHits=0,hitUntil=0,emptyAt=0,reloadHeard=false,retract=0;
 
 const canMove=()=>journey.connected||journey.mode==='local';
@@ -77,10 +87,10 @@ function applyProgress(next){
     autoScale=1;frameAverage=0;stableWindows=0;
     renderer?.setQuality(save.quality);
   }
-  if(panelName==='settings'){
-    $('quality').value=save.quality;
-    $('sensitivity').value=save.sensitivity===.65?'.65':String(save.sensitivity);
-  }
+  audio.setVolume(save.volume);sound.setVolume(save.volume);
+  $('fps').hidden=!save.showFps;
+  if(!save.mouseLock&&document.pointerLockElement)document.exitPointerLock?.();
+  if(panelName==='settings')syncSettings();
 }
 async function saveProgress(change){
   let next,locks=null;
@@ -90,10 +100,24 @@ async function saveProgress(change){
   applyProgress(next);
   return true;
 }
-function toast(message){
+// Messages wait their turn instead of replacing one another; repeats are dropped. A running count
+// (replace) updates the message on screen at once.
+const toastQueue=[];
+function toast(message,replace=false){
+  const node=$('toast');
+  if(!replace&&node.classList.contains('visible')&&node.textContent!==message){
+    if(!toastQueue.includes(message)&&toastQueue.length<3)toastQueue.push(message);
+    return;
+  }
+  showToast(message);
+}
+function showToast(message){
   const node=$('toast');
   clearTimeout(toastTimer);node.textContent=message;node.classList.add('visible');
-  toastTimer=setTimeout(()=>node.classList.remove('visible'),2850);
+  toastTimer=setTimeout(()=>{
+    node.classList.remove('visible');
+    if(toastQueue.length)toastTimer=setTimeout(()=>showToast(toastQueue.shift()),260);
+  },toastQueue.length?1900:2850);
 }
 function updateStart(){
   $('startText').textContent=localRun||cloudStarted?'続きから':'ゲームを始める';
@@ -138,8 +162,13 @@ function missionHud(view,now){
   }
   $('health').hidden=!running;
   hud.hidden=terminal;
-  $('health').setAttribute('aria-label','耐久力 '+hp+' / 4');
-  for(const [i,part] of [...$('health').querySelectorAll('i')].entries())part.classList.toggle('empty',i>=hp);
+  if(hp!==shownHealth){
+    shownHealth=hp;
+    $('health').setAttribute('aria-label','耐久力 '+hp+' / 4');
+    healthPips.forEach((part,i)=>part.classList.toggle('empty',i>=hp));
+  }
+  // The last point of durability: the screen edge pulses red.
+  stage.classList.toggle('critical',running&&hp===1);
   const pursuers=enemies.filter(e=>e.alerted&&!(e.stun>0));
   const trackers=enemies.filter(e=>e.mode==='track'&&!(e.stun>0));
   const nearbyMissiles=missiles.filter(m=>Math.hypot(m.x-motion.x,m.z-motion.z,m.y-motion.y)<270);
@@ -152,14 +181,18 @@ function missionHud(view,now){
   weaponHud(view,now);
   if(event&&event.id!==lastEvent){
     lastEvent=event.id;
-    if(event.kind==='hit'||event.kind==='vehicleHit'||event.kind==='lost')damageAt=now;
+    if(event.kind==='hit'||event.kind==='vehicleHit'||event.kind==='lost'){
+      damageAt=now;
+      if(coarsePointer.matches)try{navigator.vibrate?.([70,40,120]);}catch{}
+    }
     if(event.kind==='caught'){
       toast(event.enemy+'に捕まりました。本の回収から続行できます');
       missionCatch=true;
     }
     if(event.kind==='purified')toast('敵が成仏しました。広場の外へ退避してください');
     if(event.kind==='vehicleHit')toast('車両が大破しました。徒歩で退避');
-    if(event.kind==='book')toast('本を拾った　'+event.total+' / '+missionData.books.length+'冊');
+    if(event.kind==='book'){toast('本を拾った　'+event.total+' / '+missionData.books.length+'冊',true);audio.pickup();}
+    if(event.kind==='hit'||event.kind==='vehicleHit')audio.hit();
     if(event.kind==='stunned'){toast(event.enemy+'が気絶しました（3分間）');sound.stun();}
     if(event.kind==='ammo'){toast('弾薬を拾った　+'+event.rounds+'発（所持 '+event.total+'発）');sound.pickup();}
   }
@@ -331,6 +364,8 @@ function setRunning(value){
 }
 function changeActive(value){
   releaseControls();setRunning(false);
+  if(!value&&document.pointerLockElement)document.exitPointerLock?.();
+  void keepAwake(value);
   active=value;stage.classList.toggle('play',value);
   $('intro').hidden=value;$('hud').hidden=!value;
   if(value){missionHud(missionView,performance.now());updateTransport();}
@@ -345,6 +380,7 @@ function writeCheckpoint(){
 }
 async function begin(){
   if(travelling||transitPending||!renderer||!world||!canMove())return;
+  audio.unlock();
   if(panel.open)panel.close();
   releaseControls();
   travelling=true;arrivalReady=false;
@@ -353,9 +389,12 @@ async function begin(){
   $('travel').hidden=false;
   try{
     let target={...(journey.connected?confirmed:localRun?.player)??missionSpawn()};
+    travelTarget=target;travelStage=0;travelShown=0;
     stream(target.x,target.z,performance.now());
     let tile=await world.ready(target.x,target.z);
+    travelStage=1;
     await requestLaunchAssembly();
+    travelStage=2;
     if(connection!==journey.connectionId)throw Error('disconnected');
     if(!journey.connected){
       mission.connect(target);
@@ -377,8 +416,19 @@ async function begin(){
     toast(error.message==='disconnected'?'接続が途切れました':'街を読み込めませんでした。もう一度お試しください');
   }finally{if(!arrivalReady)finishArrival();}
 }
+// Loading screen: the bar eases toward the next step of the arrival (the ground under the player,
+// the tower assembly, the first rendered frame) and never passes a step that has not finished.
+let travelStage=0,travelShown=0;
+function travelProgress(){
+  if(!travelTarget)return;
+  const stage=arrivalReady?3:travelStage,goal=[.62,.84,.96,1][stage];
+  travelShown=stage===3?1:travelShown+(goal-travelShown)*.045;
+  const percent=Math.round(travelShown*100)+'%';
+  if($('travelPercent').textContent!==percent){$('travelPercent').textContent=percent;$('travelBar').style.width=percent;}
+}
 function finishArrival(){
-  $('travel').hidden=true;travelling=false;arrivalReady=false;arrivalBatch=null;
+  $('travel').hidden=true;travelling=false;arrivalReady=false;arrivalBatch=null;travelTarget=null;
+  $('travelPercent').textContent='0%';$('travelBar').style.width='0%';
   for(const node of [$('intro'),$('hud'),$('topBar'),$('service')])node.inert=false;
 }
 async function restart(){
@@ -425,8 +475,7 @@ function updateTransport(){
   button.hidden=!action;button.dataset.action=action;button.disabled=transitPending;
   surface.hidden=!motion.station||Boolean(motion.train?.boardedAt);surface.disabled=transitPending;
   $('transportHud').hidden=!action&&!message;
-  const cars=new Map(missionView.cars.map(car=>[car.id,car]));
-  const possible=nearVehicle(motion,missionData.cars.map(car=>cars.get(car.id)??car));
+  const possible=nearVehicle(motion,missionCars());
   const neighbor=possible&&sight.blocked([motion.x,motion.y+.9,motion.z],[possible.x,possible.y+1,possible.z])===false;
   $('vehicleBtn').hidden=Boolean(motion.station)||!motion.vehicle&&!neighbor;
   $('vehicleBtn').disabled=transitPending;
@@ -458,6 +507,7 @@ async function useTransport(kind){
       mission.changeVehicle(motion,terrain):resolveTransport(motion,kind,null,Date.now(),terrain);
     if(!next)throw Error('transport');
     setMotion(next,{reset:kind!=='metro-call'});
+    if(kind==='vehicle')audio.click();
     if(!journey.connected){mission.connect(next);acceptMission(mission.view(),performance.now());}
     writeCheckpoint();
   }catch{
@@ -466,10 +516,43 @@ async function useTransport(kind){
 }
 function compass(){
   const angle=(Math.round(yaw/rad)%360+360)%360;
-  if(angle===compassAngle)return;
-  compassAngle=angle;
-  const word=['N','NE','E','SE','S','SW','W','NW'][Math.round(angle/45)%8];
-  $('compassText').textContent=word+' '+angle+'°';
+  if(angle!==compassAngle){
+    compassAngle=angle;
+    const word=['N','NE','E','SE','S','SW','W','NW'][Math.round(angle/45)%8];
+    $('compassText').textContent=word+' '+angle+'°';
+  }
+  compassGoal();
+}
+// Marks the direction of the next goal on the compass: the nearest book still on the street, then
+// the torii gate once enough books are collected. Off-bar directions stick to the nearest edge.
+let goalShown='';
+function compassGoal(){
+  let goal=null,label='';
+  if(active&&!motion.station&&missionView.phase==='books'){
+    const picked=new Set(missionView.picked);
+    if(picked.size>=BOOK_TARGET){goal=launchSite.gate;label='鳥居';}
+    else{
+      let best=Infinity;
+      for(const book of missionData.books){
+        if(picked.has(book.id))continue;
+        const d=Math.hypot(book.x-motion.x,book.z-motion.z);
+        if(d<best){best=d;goal=book;}
+      }
+      label='本';
+    }
+  }
+  const marker=$('compassTarget'),text=$('targetText');
+  if(!goal){if(goalShown){goalShown='';marker.hidden=text.hidden=true;}return;}
+  const distance=Math.hypot(goal.x-motion.x,goal.z-motion.z);
+  const relative=heading(Math.atan2(goal.x-motion.x,motion.z-goal.z)-yaw);
+  const offset=clamp(relative/(Math.PI/2),-1,1)*52;
+  const shown=Math.round(offset)+':'+label+':'+Math.round(distance/5);
+  if(shown===goalShown)return;
+  goalShown=shown;
+  marker.hidden=text.hidden=false;
+  marker.style.setProperty('--target',offset.toFixed(1)+'px');
+  marker.classList.toggle('edge',Math.abs(relative)>Math.PI/2);
+  text.textContent=label+' '+(distance<1000?Math.round(distance/5)*5+' m':(distance/1000).toFixed(1)+' km');
 }
 function appendSample(sample){
   const total=unsent.reduce((n,row)=>n+row[0],0);
@@ -481,11 +564,12 @@ function appendSample(sample){
   return true;
 }
 function travelMove(dt,now,missionMs){
-  const f=clamp((keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0)-move[1],-1,1);
-  let s=clamp((keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0)+move[0],-1,1);
+  const f=clamp((keys.has('KeyW')||keys.has('ArrowUp')?1:0)-(keys.has('KeyS')||keys.has('ArrowDown')?1:0)-move[1]-pad.move[1],-1,1);
+  let s=clamp((keys.has('KeyD')?1:0)-(keys.has('KeyA')?1:0)+move[0]+pad.move[0],-1,1);
   const rotation=(keys.has('ArrowRight')?1:0)-(keys.has('ArrowLeft')?1:0);
   if(motion.vehicle)s=clamp(s+rotation,-1,1);
   else if(rotation)yaw=heading(yaw+rotation*dt*LOOK_SPEED);
+  driveInput={throttle:f,steer:s,brake:running||keys.has('ShiftLeft')||keys.has('ShiftRight')||pad.run};
   if(!canMove()||missionTerminal(missionView.phase))return;
   if(Math.hypot(f,s)>.01)flightStart=null;
   const walking=Math.hypot(f,s)>.001,coasting=Math.hypot(motion.vx,motion.vy,motion.vz)>.012;
@@ -493,7 +577,7 @@ function travelMove(dt,now,missionMs){
   const before={...motion},beforeX=motion.x,beforeZ=motion.z;
   if(!motion.train?.boardedAt&&(walking||coasting||orient)){
     const inputs=frameInputs(dt*1000,Math.round(f*1000)/1000,Math.round(s*1000)/1000,
-      heading(Math.round(yaw*10000)/10000),running||keys.has('ShiftLeft')||keys.has('ShiftRight'));
+      heading(Math.round(yaw*10000)/10000),running||keys.has('ShiftLeft')||keys.has('ShiftRight')||pad.run);
     for(const input of inputs){
       if(journey.connected&&(outstanding.length>=18||!appendSample(input)))break;
       simulate(motion,[input],terrain);
@@ -524,6 +608,11 @@ function travelMove(dt,now,missionMs){
   wasMoving=walking||coasting;
   position[0]=motion.x;position[1]=motion.z;
   const moved=Math.hypot(motion.x-beforeX,motion.z-beforeZ);
+  if(!motion.vehicle&&!motion.train?.boardedAt){
+    const sprint=running||keys.has('ShiftLeft')||keys.has('ShiftRight')||pad.run,stride=sprint?1.15:.72;
+    stepDistance=moved>0?stepDistance+moved:0;
+    if(stepDistance>=stride){stepDistance%=stride;audio.step(sprint?1.6:1);}
+  }
   phase=(phase+moved*2.3)%(2*Math.PI);
   const speed=moved/Math.max(dt,.0001);
   if(motion.vehicle||motion.station||reduceMotion.matches)bob=0;
@@ -591,7 +680,11 @@ function onJourney(event){
     if(confirmed)setMotion(confirmed);
   }
   if(mode==='local'||mode==='cloud')updateStart();
-  $('start').disabled=!['local','cloud'].includes(mode);
+  updateStartButton();
+}
+// Starting needs both a connection mode and a renderer; the shaders may still be compiling.
+function updateStartButton(){
+  $('start').disabled=!['local','cloud'].includes(journey?.mode)||!renderer;
 }
 const journey=createJourney(onJourney);
 function tuneScale(now,interval,target){
@@ -629,6 +722,135 @@ function followCar(player){
   return [player.x-s*distance,Math.max(player.y,level)+Math.min(2.66,1.65+distance*.22),player.z+c*distance];
 }
 
+// Sound for this frame: the continuous layers follow the scene and each new explosion is heard
+// once, delayed by its distance.
+const heardBlasts=new Set();
+let flightSeconds=0;
+function listen(view,eye,speed,flight,train){
+  if(!audio.started)return;
+  // Engines idle while the airliner taxis, spool up on the runway after 19 s and stay at full power.
+  let jet=0;
+  if(flight){
+    const power=flightSeconds<19?.22:Math.min(1,.22+(flightSeconds-19)/9);
+    jet=power*clamp(1-Math.hypot(flight.x-eye[0],flight.y-eye[1],flight.z-eye[2])/1300,0,1)**2;
+  }
+  const trainLevel=!train?0:{approaching:.25+.75*clamp(1-(train.leg.length-train.distance)/136,0,1),ready:.12,departing:.3,riding:.75,arrived:.12}[train.phase]??0;
+  let missile=Infinity,thrust=0;
+  for(const m of view.missiles??[])missile=Math.min(missile,Math.hypot(m.x-eye[0],m.y-eye[1],m.z-eye[2]));
+  if(active&&(view.phase==='evacuate'||view.phase==='ascent')){
+    const spool=view.phase==='ascent'?1:clamp((view.elapsed-EVACUATION_MS+3600)/3600,0,1);
+    thrust=spool*clamp(1-Math.hypot(eye[0]-launchSite.x,eye[2]-launchSite.z)/700,0,1);
+  }
+  for(const blast of view.blasts??[]){
+    if(heardBlasts.has(blast.id))continue;
+    heardBlasts.add(blast.id);
+    if(heardBlasts.size>64)heardBlasts.delete(heardBlasts.values().next().value);
+    if(active&&blast.age<400)audio.blast(Math.hypot(blast.x-eye[0],blast.y-eye[1],blast.z-eye[2]));
+  }
+  const ground=visualGround(eye[0],eye[2]);
+  audio.update({active,underground:active&&Boolean(motion.station),speed,vehicle:active&&motion.vehicle,
+    throttle:driveInput.throttle??0,missile,thrust,altitude:Number.isFinite(ground)?eye[1]-ground:0,
+    jet,train:trainLevel,trainRunning:train?.phase==='riding'});
+}
+// Frame rate readout for the settings toggle, refreshed twice a second.
+let fpsFrames=0,fpsSince=0;
+function countFrame(now){
+  if(!save.showFps)return;
+  fpsFrames++;
+  if(now-fpsSince<500)return;
+  const fps=fpsFrames*1000/(now-fpsSince);
+  if(fpsSince)$('fps').textContent=(fps<10?fps.toFixed(1):Math.round(fps))+' fps';
+  fpsFrames=0;fpsSince=now;
+}
+// Standard gamepads: left stick moves or steers, right stick looks, A runs or brakes,
+// B gets in and out of cars, X uses the transport button and Start opens the settings.
+// Polling starts once a pad has announced itself, so pages without one never pay for it.
+let gamepadSeen=false;
+window.addEventListener('gamepadconnected',e=>{
+  gamepadSeen=true;
+  if(e.gamepad?.mapping==='standard')toast('ゲームパッドを接続しました');
+});
+// Keeps a phone's screen awake while playing; the browser drops the lock when the page is hidden.
+let wakeLock=null;
+async function keepAwake(on){
+  try{
+    if(on&&!wakeLock&&!document.hidden&&navigator.wakeLock){
+      wakeLock=await navigator.wakeLock.request('screen');
+      wakeLock.addEventListener?.('release',()=>{wakeLock=null;});
+    }else if(!on&&wakeLock){const lock=wakeLock;wakeLock=null;await lock.release();}
+  }catch{wakeLock=null;}
+}
+function pollGamepad(dt){
+  if(!gamepadSeen)return;
+  let gamepad=null;
+  try{for(const g of navigator.getGamepads?.()??[])if(g?.connected&&g.mapping==='standard'){gamepad=g;break;}}catch{}
+  if(!gamepad){if(pad.run||pad.move[0]||pad.move[1]){pad.move=[0,0];pad.run=false;}return;}
+  const dead=v=>Math.abs(v)<.16?0:(v-Math.sign(v)*.16)/.84;
+  const [lx,ly,rx,ry]=[0,1,2,3].map(i=>dead(gamepad.axes[i]??0));
+  const pressed=i=>Boolean(gamepad.buttons[i]?.pressed);
+  const usable=active&&!travelling&&!panel.open&&canMove()&&!missionTerminal(missionView.phase);
+  const next=usable?[lx,ly]:[0,0];
+  if((Math.hypot(...next)>0)!==(Math.hypot(...pad.move)>0)||pressed(0)!==pad.run)advanceMotion(performance.now());
+  pad.move=next;pad.run=usable&&pressed(0);
+  if(usable&&(rx||ry)){
+    const gain=2.4*save.sensitivity*dt;
+    flightStart=null;
+    if(motion.vehicle)viewOffset=clamp(viewOffset+rx*gain,-.93,.93);
+    else if(motion.train?.boardedAt)viewOffset=heading(viewOffset+rx*gain);
+    else yaw=heading(yaw+rx*gain);
+    pitch=clampPitch(pitch-ry*gain*.75*(save.invertY?-1:1));
+  }
+  const edge=i=>{const now=pressed(i),was=pad.buttons[i];pad.buttons[i]=now;return now&&!was;};
+  if(edge(1)&&usable)void useTransport('vehicle');
+  if(edge(2)&&usable)void useTransport($('transportBtn').hidden?null:$('transportBtn').dataset.action);
+  if(edge(9)){if(panel.open)panel.close();else if(active)openPanel();else void begin();}
+  // RT fires (held, it repeats like the mouse button) and Y reloads.
+  const fire=usable&&pressed(7);
+  if(fire!==padFire){padFire=fire;trigger=fire;if(fire){sound.unlock();pullTrigger(performance.now());}}
+  if(edge(3)&&usable){sound.unlock();startReload();}
+}
+// The player's own body is drawn only into the shadow map, so a shadow walks along with them.
+let bodyPhase=0,bodyTime=null;
+function playerShadow(out,now){
+  const speed=Math.hypot(motion.vx,motion.vz),dt=bodyTime===null?0:Math.min(.25,(now-bodyTime)/1000);
+  bodyTime=now;
+  const stride=speed>3.2?2.3:1.42;
+  bodyPhase=(bodyPhase+speed*dt/stride*Math.PI*2)%(Math.PI*2);
+  humanInstance(out.shadowHumans??=[],{x:motion.x,y:motion.y,z:motion.z,yaw:speed>.3?Math.atan2(motion.vx,-motion.vz):yaw,
+    scale:1,build:1,phase:bodyPhase,gait:clamp(speed/1.4,0,1),stride,
+    skin:'c8a080',hair:'2a2420',top:'3b4a5c',bottom:'2b3446',shoe:'1c1c1e',style:0});
+}
+// Camera shake from the launch, nearby explosions and the giant's footsteps.
+function cameraShake(view,eye){
+  if(reduceMotion.matches||!save.shake)return 0;
+  let shake=0;
+  if(view.phase==='ascent'&&view.lift<128)
+    shake=(1-view.lift/128)*Math.max(0,1-Math.hypot(motion.x-launchSite.x,motion.z-launchSite.z)/160);
+  for(const blast of view.blasts??[]){
+    const t=blast.age/1000;
+    if(t>1.2)continue;
+    const d=Math.hypot(blast.x-eye[0],blast.y-eye[1],blast.z-eye[2]);
+    shake=Math.max(shake,(1-t/1.2)**2*clamp(1-d/140,0,1)*1.6);
+  }
+  for(const enemy of view.enemies??[]){
+    if(!(enemy.scale>1)||!(enemy.speedNow>.4)||!Number.isFinite(enemy.y))continue;
+    const d=Math.hypot(enemy.x-eye[0],enemy.z-eye[2]),gait=enemyGait(enemy);
+    if(d<75&&gait!==null)shake=Math.max(shake,Math.abs(Math.sin(gait))**24*(1-d/75)*.6);
+  }
+  return Math.min(shake,1.6);
+}
+// Per-frame view settings for the renderer: field of view widening with speed, speed blur and
+// the light of explosions or the launch engines.
+let lastEye=null,steadyEye=null;
+function viewOptions(view,eye,dt){
+  const travelled=lastEye?Math.hypot(eye[0]-lastEye[0],eye[1]-lastEye[1],eye[2]-lastEye[2]):0;
+  lastEye=[...eye];
+  const speed=travelled<20?travelled/Math.max(dt,.001):0;
+  const options={speed,fov:save.fov+(active&&motion.vehicle?clamp((speed-9)/21,0,1)*7:0)};
+  if(active&&save.motionBlur&&!reduceMotion.matches)options.blur=clamp((speed-3)/20,0,1);
+  if(active&&!motion.station)options.light=missionLight(view,eye,performance.now()/1000);
+  return options;
+}
 function visualGround(x,z){
   const tile=world.cache.at(x,z);
   if(tile)return sampleHeight(tile,x,z);
@@ -642,6 +864,8 @@ function shadowGround(x,z){
 
 function frame(now){
   requestAnimationFrame(frame);
+  audio.setPaused(document.hidden||panel.open);
+  if(travelling)travelProgress();
   if(document.hidden||!renderer||travelling&&!arrivalReady||panel.open){
     frameTime=0;nextFrame=0;frameAverage=0;lastTuning=now;stableWindows=0;
     return;
@@ -655,8 +879,11 @@ function frame(now){
   const dt=Math.min(MAX_BATCH_MS,interval)/1000;frameTime=now;
   const elapsed=(now-startTime)/1000;
   const visual=renderedMission(now);
-  $('damage').style.opacity=String(Math.max(0,1-(now-damageAt)/850));
+  const damage=Math.round(Math.max(0,1-(now-damageAt)/850)*100)/100;
+  if(damage!==shownDamage){shownDamage=damage;$('damage').style.opacity=String(damage);}
   let eye,goal,state=null,flight=null;
+  pollGamepad(dt);
+  countFrame(now);
   if(active){
     advanceMotion(now);
     state=trainState(motion.train,transitClock());
@@ -670,15 +897,18 @@ function frame(now){
     }else if(motion.vehicle){
       eye=followCar(motion);yaw=heading(motion.yaw+viewOffset);
     }else eye=[motion.x+correction[0],motion.y+PLAYER_HEIGHT+bob+correction[1],motion.z+correction[2]];
-    if(!reduceMotion.matches&&visual.phase==='ascent'&&visual.lift<128){
-      const intensity=(1-visual.lift/128)*Math.max(0,1-Math.hypot(motion.x-launchSite.x,motion.z-launchSite.z)/160);
-      eye[0]+=Math.sin(now*.055)*.12*intensity;eye[1]+=Math.cos(now*.071)*.09*intensity;
+    steadyEye=[...eye];
+    const shake=cameraShake(visual,eye);
+    if(shake>0){
+      eye[0]+=(Math.sin(now*.055)+Math.sin(now*.131)*.45)*.12*shake;
+      eye[1]+=(Math.cos(now*.071)+Math.sin(now*.163)*.4)*.09*shake;
+      eye[2]+=Math.sin(now*.089+1.3)*.1*shake;
     }
     const direction=[Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)];
     goal=eye.map((n,i)=>n+direction[i]);
     if(!motion.station&&Math.hypot(eye[0]-airport.x,eye[2]-airport.z)<1250){
       const seconds=flightStart===null?(animationEpoch+now/1000)%66:(now-flightStart)/1000;
-      flight=planePose(seconds);
+      flight=planePose(seconds);flightSeconds=seconds;
       if(flightStart!==null){
         if(flight&&Math.hypot(flight.x-eye[0],flight.z-eye[2])<1150)goal=[flight.x,flight.y+3.2,flight.z];
         else flightStart=null;
@@ -708,17 +938,20 @@ function frame(now){
     tuneScale(now,interval,target);
     if(now>=nextWalker){
       const underground=active&&motion.station;
+      const focus=active?{x:motion.x,y:motion.y+PLAYER_HEIGHT,z:motion.z,radius:motion.vehicle?2.7:motion.train?.boardedAt?0:1.5}:null;
       walkers=underground?{}:peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround,renderer.detailedActors===true,
-        lightMode?LIGHT_RADIUS+6:155);
+        focus,lightMode?LIGHT_RADIUS+6:155);
       if(active&&motion.vehicle){
         const s=Math.sin(motion.yaw),c=Math.cos(motion.yaw),t=motion.y;
         const a=terrain.support(motion.x+s*1.5,motion.z-c*1.5,t)??t;
         const b=terrain.support(motion.x-s*1.5,motion.z+c*1.5,t)??t;
-        updateVehicleModel(walkers,motion,Math.atan2(a-b,3));
+        updateVehicleModel(walkers,motion,Math.atan2(a-b,3),driveInput,now);
       }
+      if(active&&walkers.detailed&&!motion.vehicle&&!motion.station&&!motion.train?.boardedAt)playerShadow(walkers,now);
       if(state)drawTrain(walkers,state);
       if(flight)drawPlane(walkers,flight);
       if(!underground)drawMission(walkers,active?visual:{phase:'books',lift:0},eye,elapsed,renderer.software||save.quality==='low',visualGround,lightMode);
+      if(!underground&&!renderer.software&&!lightMode)drawBirds(walkers,eye,animationEpoch+now/1000,visualGround);
       if(!underground&&Math.hypot(eye[0]-airport.x,eye[2]-airport.z)<325)
         for(const x of [851,902,971])drawPlane(walkers,{x,y:airport.elevation,z:2023,yaw:.18},'d6ddd7');
       nextWalker=now+1000/30-1;
@@ -739,35 +972,55 @@ function frame(now){
         sway:reduceMotion.matches?[0,0]:[Math.cos(phase)*.0035*pace,-Math.abs(Math.sin(phase))*.004*pace],
         lowered:pace>.95&&now-lastShotAt>600?.022:0});
     }
-    const rendered=renderer.render(eye,goal,light,elapsed,walkers,arrivalBatch,signal,inHand);
+    const options=viewOptions(visual,active?steadyEye:eye,dt);
+    const rendered=renderer.render(eye,goal,light,elapsed,walkers,arrivalBatch,signal,inHand,options);
+    listen(visual,eye,options.speed,flight,state);
     if(arrivalReady&&rendered)finishArrival();
   }
 }
+// Every preference shown in the settings panel; values are validated again by readProgress.
+const settingRows=[
+  {key:'quality',title:'描画品質',text:'自動では滑らかさに合わせて解像度を調整します。',options:[['auto','自動'],['high','高精細'],['low','軽量']]},
+  {key:'sensitivity',title:'視点の感度',text:'ドラッグ、マウス、右スティックで見回す速さです。',options:[[.65,'低い'],[1,'標準'],[1.5,'高い']]},
+  {key:'fov',title:'視野角',text:'広くすると周りが見やすくなります。運転中は速度に合わせて少し広がります。',options:[[61,'標準'],[70,'広め'],[78,'広角']]},
+  {key:'invertY',title:'上下の視点操作',text:'上下の向きを飛行機の操縦のように反転します。',options:[[false,'標準'],[true,'反転']]},
+  {key:'mouseLock',title:'マウスで見回す',text:'画面をクリックするとカーソルを固定し、ドラッグせずに見回せます。Escで解除します。',options:[[false,'オフ'],[true,'オン']],desktop:true},
+  {key:'motionBlur',title:'モーションブラー',text:'速く移動しているときに周りを流れるようにぼかします。',options:[[true,'オン'],[false,'オフ']]},
+  {key:'shake',title:'画面の揺れ',text:'爆発や巨人の足音、発射の振動で視点が揺れます。',options:[[true,'オン'],[false,'オフ']]},
+  {key:'volume',title:'音量',text:'街の音、足音、車、爆発などの効果音です。Mキーで消音を切り替えられます。',options:[[0,'オフ'],[.35,'小'],[.7,'中'],[1,'大']]},
+  {key:'showFps',title:'フレームレート表示',text:'画面の右下に1秒あたりの描画回数を表示します。',options:[[false,'オフ'],[true,'オン']]}
+];
 function settings(){
-  return '<div class="setting"><div><b>描画品質</b><p>自動では滑らかさに合わせて解像度を調整します。軽量は400p・最大120fpsで、半径50 m以内の向いている方向だけを描きます。</p></div><select id="quality" aria-label="描画品質"><option value="auto">自動</option><option value="high">高精細</option><option value="low">軽量</option></select></div>'+
-  '<div class="setting"><div><b>視点の感度</b><p>ドラッグ操作の回転速度を調整します。</p></div><select id="sensitivity" aria-label="視点の感度"><option value=".65">低い</option><option value="1">標準</option><option value="1.5">高い</option></select></div>'+
+  const desktop=!coarsePointer.matches;
+  return settingRows.filter(row=>!row.desktop||desktop).map(row=>'<div class="setting"><div><b>'+row.title+'</b><p>'+row.text+
+    '</p></div><select id="setting-'+row.key+'" aria-label="'+row.title+'">'+
+    row.options.map(([,label],i)=>'<option value="'+i+'">'+label+'</option>').join('')+'</select></div>').join('')+
   '<div class="setting"><div><b>全画面表示</b><p>端末が対応していれば横画面に切り替わります。</p></div><button id="fullBtn">'+(document.fullscreenElement?'全画面を終了':'全画面にする')+'</button></div>'+
-  '<div class="setting"><div><b>操作</b><p>PCはWASDで移動・運転し、Vで乗降します。運転中はShiftでブレーキ。F・スペース・クリック・右ボタンで射撃、Rでリロード。スマホでは左のスティックと画面内のボタンを使えます。</p></div></div>'+
+  '<div class="setting"><div><b>操作</b><p>PCはWASDで移動・運転、Vで乗降、Eで地下鉄などの操作、Escで設定を開きます。運転中はShiftでブレーキ。F・スペース・クリック・右ボタンで射撃、Rでリロード。'+
+  'ゲームパッドは左スティックで移動、右スティックで視点、Aで走る・ブレーキ、Bで乗降、Xで地下鉄などの操作、RTで射撃、Yでリロード、スタートで設定です。'+
+  'スマホでは左のスティックと画面内のボタンを使えます。</p></div></div>'+
   '<div class="setting"><div><b>拳銃 RD II</b><p>三連装・9 mm。引き金1回で3発を同時に発射します。初速 '+RD2.muzzleVelocity+' m/s、空気抵抗による減速は銃口で約 '+Math.round(muzzleDeceleration)+' m/s²、重力 '+RD2.gravity.toFixed(2)+' m/s²。装填 '+RD2.magazine+' 発、初期所持 '+RD2.startingRounds+' 発。弾薬箱1個で '+RD2.pickupRounds+' 発。'+RD2.stunHits+' 発命中で敵は3分間気絶します。</p></div></div>';
+}
+function syncSettings(){
+  for(const row of settingRows){
+    const select=$('setting-'+row.key);
+    if(select)select.value=String(Math.max(0,row.options.findIndex(([value])=>value===save[row.key])));
+  }
 }
 function openPanel(){
   if(travelling||missionTerminal(missionView.phase))return;
-  releaseControls();panelName='settings';$('toast').classList.remove('visible');
+  releaseControls();panelName='settings';$('toast').classList.remove('visible');toastQueue.length=0;
+  if(document.pointerLockElement)document.exitPointerLock?.();
   panelBody.innerHTML=settings();
-  $('quality').value=save.quality;
-  $('sensitivity').value=save.sensitivity===.65?'.65':String(save.sensitivity);
-  $('quality').onchange=async e=>{
-    const select=e.target,quality=select.value;
-    if(!await saveProgress(()=>({quality}))){
-      select.value=save.quality;toast('描画品質を保存できませんでした');
-    }
-  };
-  $('sensitivity').onchange=async e=>{
-    const select=e.target,sensitivity=Number(select.value);
-    if(!await saveProgress(()=>({sensitivity}))){
-      select.value=save.sensitivity===.65?'.65':String(save.sensitivity);toast('視点の感度を保存できませんでした');
-    }
-  };
+  syncSettings();
+  for(const row of settingRows){
+    const select=$('setting-'+row.key);
+    if(!select)continue;
+    select.onchange=async()=>{
+      const value=row.options[Number(select.value)]?.[0];
+      if(value===undefined||!await saveProgress(()=>({[row.key]:value}))){syncSettings();toast(row.title+'を保存できませんでした');}
+    };
+  }
   $('fullBtn').onclick=toggleFullscreen;
   if(!panel.open)panel.showModal();
   panel.scrollTop=0;
@@ -856,10 +1109,19 @@ window.addEventListener('pagehide',event=>{
 });
 window.addEventListener('pageshow',event=>{if(event.persisted)journey.resume();});
 document.addEventListener('visibilitychange',()=>{
-  if(!document.hidden){journey.wake();return;}
+  if(!document.hidden){journey.wake();if(active)void keepAwake(true);return;}
   frameTime=0;nextFrame=0;
   writeCheckpoint();releaseControls();
 });
+function rotateView(dx,dy,gain){
+  flightStart=null;
+  const delta=dx*gain;
+  if(motion.vehicle)viewOffset=clamp(viewOffset+delta,-.93,.93);
+  else if(motion.train?.boardedAt)viewOffset=heading(viewOffset+delta);
+  else yaw=heading(yaw+delta);
+  pitch=clampPitch(pitch-dy*gain*(save.invertY?-1:1));
+}
+let lockReleasedAt=-Infinity;
 look.addEventListener('contextmenu',e=>e.preventDefault());
 // The right button is the trigger; it can be held while the left button turns the view.
 look.addEventListener('mousedown',e=>{
@@ -869,22 +1131,56 @@ look.addEventListener('mousedown',e=>{
 window.addEventListener('mouseup',e=>{if(e.button===2)trigger=false;});
 look.addEventListener('pointerdown',e=>{
   if(!renderer||!active||!canMove()||panel.open||travelling)return;
-  sound.unlock();
+  sound.unlock();audio.unlock();
   if(lookPointer||e.button!==0)return;
+  // With "mouse look" on, a click captures the cursor; once it is captured, clicks fire.
+  if(save.mouseLock&&e.pointerType==='mouse'&&look.requestPointerLock){
+    if(document.pointerLockElement!==look){try{look.requestPointerLock()?.catch?.(()=>{});}catch{}}
+    else pullTrigger(eventClock(e));
+    return;
+  }
   lookPointer={id:e.pointerId,x:e.clientX,y:e.clientY,startX:e.clientX,startY:e.clientY,at:eventClock(e),moved:0};look.setPointerCapture(e.pointerId);
 });
 
 look.addEventListener('pointermove',e=>{
   if(lookPointer?.id!==e.pointerId)return;
-  const gain=.0046*save.sensitivity;
-  flightStart=null;
-  const delta=(e.clientX-lookPointer.x)*gain;
-  if(motion.vehicle)viewOffset=clamp(viewOffset+delta,-.93,.93);
-  else if(motion.train?.boardedAt)viewOffset=heading(viewOffset+delta);
-  else yaw=heading(yaw+delta);
-  pitch=clampPitch(pitch-(e.clientY-lookPointer.y)*gain);
+  rotateView(e.clientX-lookPointer.x,e.clientY-lookPointer.y,.0046*save.sensitivity);
   lookPointer.moved=Math.max(lookPointer.moved,Math.hypot(e.clientX-lookPointer.startX,e.clientY-lookPointer.startY));
   lookPointer.x=e.clientX;lookPointer.y=e.clientY;
+});
+document.addEventListener('mousemove',e=>{
+  if(document.pointerLockElement!==look||!active||panel.open||travelling)return;
+  rotateView(e.movementX,e.movementY,.0028*save.sensitivity);
+});
+document.addEventListener('pointerlockchange',()=>{
+  if(document.pointerLockElement===look)return;
+  lockReleasedAt=performance.now();finishLook();
+});
+// Long presses and right clicks on the game view do not open the browser's menu.
+stage.addEventListener('contextmenu',e=>{if(active&&!panel.open)e.preventDefault();});
+// Shortcuts: M mute, E the transport button, Escape the settings (F and Space fire the pistol).
+let unmutedVolume=save.volume||.7;
+window.addEventListener('keydown',e=>{
+  if(e.ctrlKey||e.metaKey||e.altKey)return;
+  audio.unlock();
+  if(e.repeat||!renderer||e.target instanceof HTMLSelectElement)return;
+  if(e.code==='KeyM'){
+    e.preventDefault();
+    if(save.volume)unmutedVolume=save.volume;
+    const volume=save.volume?0:unmutedVolume;
+    void saveProgress(()=>({volume})).then(saved=>{if(saved)toast(volume?'音を戻しました':'消音しました');});
+    return;
+  }
+  if(!active||travelling||panel.open)return;
+  if(e.code==='KeyE'){
+    const button=$('transportBtn');
+    if(!button.hidden&&!button.disabled){e.preventDefault();void useTransport(button.dataset.action);}
+    return;
+  }
+  // Escape first leaves pointer lock or full screen, which the browser handles itself.
+  if(e.code==='Escape'&&!document.pointerLockElement&&!document.fullscreenElement&&performance.now()-lockReleasedAt>400){
+    e.preventDefault();openPanel();
+  }
 });
 for(const event of ['pointerup','pointercancel','lostpointercapture'])look.addEventListener(event,e=>{
   if(lookPointer?.id!==e.pointerId)return;
@@ -931,8 +1227,16 @@ function useRenderer(canvas,next){
   void loadArchitectureMaterials().then(bytes=>{
     if(renderer===next)next.setMaterials(bytes);
   }).catch(error=>console.info('Architectural materials unavailable',error.message));
+  // Image-generated textures, when the skill has made them. About 170 layers with mipmaps take
+  // 134 MB of video memory at 384 px, 93 MB at 320 px and 46 MB at 224 px.
+  const photoTile=coarsePointer.matches||save.quality==='low'?224:save.quality==='high'?384:320;
+  if(next.setPhotoTextures)void loadGeneratedTextures({tile:photoTile}).then(photos=>{
+    if(photos&&renderer===next)next.setPhotoTextures(photos);
+    else for(const layer of photos?.layers??[])layer.close?.();
+  });
   meshKey='';hasMeshes=false;autoScale=1;frameTime=0;nextFrame=0;frameAverage=0;
   $('failure').hidden=true;
+  updateStartButton();
 }
 async function fallback(generation){
   const {softwareRenderer}=await import('./software.js');
@@ -958,10 +1262,20 @@ hardwareScene.addEventListener('webglcontextrestored',()=>{
     useRenderer(hardwareScene,next);
   }catch(error){console.info('WebGL 2 restoration unavailable',error.message);}
 });
+// Parked cars with the server's latest changes applied, rebuilt only when a new snapshot arrives
+// (collision checks call this many times per physics step).
+let carsView=null,carsNow=[];
+function missionCars(){
+  if(carsView!==missionView){
+    carsView=missionView;
+    const changes=new Map(missionView.cars.map(car=>[car.id,car]));
+    carsNow=missionData.cars.map(base=>changes.get(base.id)??base);
+  }
+  return carsNow;
+}
 function carObstacle(x,z,y,id){
-  const changes=new Map(missionView.cars.map(car=>[car.id,car]));
-  return missionData.cars.some(base=>{
-    const car=changes.get(base.id)??base,dx=x-car.x,dz=z-car.z;
+  return missionCars().some(car=>{
+    const dx=x-car.x,dz=z-car.z;
     if(car.id===id||car.id===missionView.driver||Math.abs(dx)>2.7||Math.abs(dz)>2.7||
       Number.isFinite(y)&&Math.abs(y-car.y)>1.9)return false;
     const c=Math.cos(car.yaw),s=Math.sin(car.yaw);
@@ -970,17 +1284,23 @@ function carObstacle(x,z,y,id){
 }
 async function boot(){
   try{
-    try{useRenderer(hardwareScene,createRenderer(hardwareScene));}catch(error){
-      console.info('WebGL 2 unavailable, using software 3D',error.message);
-      await fallback(++rendererGeneration);
-    }
+    // The world, the mission data and the server check start while the shaders compile.
     world=createRegion();
     terrain=terrainSampler(world.cache,{
       plazaFloor:(x,z,y)=>journey.connected?missionPlazaFloor(missionView,x,z,y):mission.plazaFloor(x,z,y),
       carObstacle:(x,z,y,id)=>journey.connected?carObstacle(x,z,y,id):mission.carObstacle(x,z,y,id)
     });
     void requestLaunchAssembly().catch(()=>{});
-    updateStart();journey.start();requestAnimationFrame(frame);
+    updateStart();journey.start();
+    try{
+      const next=createRenderer(hardwareScene,{wait:false});
+      try{await next.ready;}catch(error){next.dispose();throw error;}
+      if(!renderer)useRenderer(hardwareScene,next);
+    }catch(error){
+      console.info('WebGL 2 unavailable, using software 3D',error.message);
+      await fallback(++rendererGeneration);
+    }
+    requestAnimationFrame(frame);
   }catch(error){
     console.error(error);$('failure').hidden=false;
   }

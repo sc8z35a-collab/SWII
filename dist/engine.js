@@ -4,10 +4,12 @@ import {SIGNAL_GREEN} from './street-lights.js';
 import {MATERIAL_SIZE,surfaceProfiles} from './architecture-materials.js';
 import {actorKinds} from './moving-models.js';
 import {SKY_LUT_SIZE,skyLutFragment,skyModel} from './gfx-common.js';
-import {createPost} from './gfx-post.js';
+import {ADAPT_BAND,ADAPT_BAND_UNDERGROUND,createPost} from './gfx-post.js';
 import {KIND_IDS,depthFragment,skyFragment,skyVertex,worldFragment,worldVertex} from './world-shader.js';
 import {createActorRenderer} from './actor-renderer.js';
 import {rad,normalize as unit,vectorCross as cross} from './vector.js';
+import {compileProgram,whenCompiled} from './gl-program.js';
+import {PHOTO_TABLE_ROWS,PHOTO_TABLE_WIDTH} from './generated-textures.js';
 export {rad};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
 export function view(eye,to){
@@ -19,11 +21,11 @@ function product(a,b){
 }
 const NEAR=.12,FAR=1220,FOV=61*rad;
 export const LIGHT_LINES=400;
-function perspective(ratio){
-  const k=1/Math.tan(FOV/2);
+function perspective(ratio,fov=FOV){
+  const k=1/Math.tan(fov/2);
   return [k/ratio,0,0,0,0,k,0,0,0,0,(NEAR+FAR)/(NEAR-FAR),-1,0,0,2*NEAR*FAR/(NEAR-FAR),0];
 }
-export const cameraProjection=(eye,to,ratio)=>product(perspective(ratio),view(eye,to));
+export const cameraProjection=(eye,to,ratio,fov=FOV)=>product(perspective(ratio,fov),view(eye,to));
 export function shadowProjection(sun,anchor,size,range=146){
   const texel=2*range/size;
   const lightView=view(sun.map((n,i)=>anchor[i]+n*410),anchor);
@@ -49,6 +51,7 @@ function invert(m){
   out[14]=(a[13]*b01-a[12]*b03-a[14]*b00)*det;out[15]=(a[8]*b03-a[9]*b01+a[10]*b00)*det;
   return out;
 }
+const clampFov=degrees=>Math.min(80,Math.max(50,Number(degrees)||61));
 const halton=(index,base)=>{let f=1,r=0;while(index>0){f/=base;r+=f*(index%base);index=Math.floor(index/base);}return r;};
 const jitterSequence=Array.from({length:8},(_,i)=>[halton(i+1,2)-.5,halton(i+1,3)-.5]);
 
@@ -104,32 +107,6 @@ function sphere(rings=10,columns=16){
   }
   return mesh;
 }
-function compileProgram(gl,vs,fs){
-  const create=(type,code)=>{
-    const shader=gl.createShader(type);
-    gl.shaderSource(shader,code);
-    gl.compileShader(shader);
-    if(!gl.getShaderParameter(shader,gl.COMPILE_STATUS)){
-      const log=gl.getShaderInfoLog(shader);
-      const line=+(/0:(\d+)/.exec(log)?.[1]??0);
-      const context=code.split('\n').slice(Math.max(0,line-4),line+2).map((l,i)=>(Math.max(0,line-4)+i+1)+': '+l).join('\n');
-      throw Error(log+'\n'+context);
-    }
-    return shader;
-  };
-  const program=gl.createProgram();
-  const vert=create(gl.VERTEX_SHADER,vs),frag=create(gl.FRAGMENT_SHADER,fs);
-  gl.attachShader(program,vert);gl.attachShader(program,frag);gl.linkProgram(program);
-  if(!gl.getProgramParameter(program,gl.LINK_STATUS))throw Error(gl.getProgramInfoLog(program));
-  gl.deleteShader(vert);gl.deleteShader(frag);
-  const u={};
-  const count=gl.getProgramParameter(program,gl.ACTIVE_UNIFORMS);
-  for(let i=0;i<count;i++){
-    const name=gl.getActiveUniform(program,i).name.replace(/\[0\]$/,'');
-    u[name.replace(/^u/,'')]=gl.getUniformLocation(program,name);
-  }
-  return {program,u};
-}
 export {compileProgram};
 const fullscreenVertex=`#version 300 es
 void main(){
@@ -151,9 +128,12 @@ const undergroundModel=light=>{
     ambientAnti:warm.map(v=>v*level*.8),multiScatter:[0,0,0],mieScatter:[0,0,0],mieAbsorb:0,groundAlbedo:[0,0,0]};
 };
 
-export function createRenderer(canvas){
+// With wait:false the shaders compile in the background; await renderer.ready before rendering.
+export function createRenderer(canvas,{wait=true}={}){
   const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance'});
   if(!gl)throw Error('WebGL 2 unavailable');
+  // Lets drivers build the programs on worker threads and report progress without blocking.
+  gl.getExtension('KHR_parallel_shader_compile');
   let floatColor=!!gl.getExtension('EXT_color_buffer_float');
   const anisotropic=gl.getExtension('EXT_texture_filter_anisotropic');
   const mobile=matchMedia('(pointer:coarse)').matches;
@@ -161,13 +141,23 @@ export function createRenderer(canvas){
   const depth=compileProgram(gl,worldVertex,depthFragment);
   const skies=compileProgram(gl,skyVertex,skyFragment);
   const skyLut=compileProgram(gl,fullscreenVertex,skyLutFragment);
-  let post=createPost(gl,{floatColor});
+  let post=createPost(gl,{floatColor,compileProgram});
   // Detailed actors are optional: without them the primitive figures are drawn instead.
+  const noActors={ready:false,programs:[],update(){},draw(){},drawShadows(){}};
   let actors;
   try{actors=createActorRenderer(gl,{compileProgram,mobile});}
   catch(error){
     console.info('Detailed actors unavailable',error.message);
-    actors={ready:false,update(){},draw(){},drawShadows(){}};
+    actors=noActors;
+  }
+  // Every program has been handed to the driver by now; statuses are read only after this point.
+  const corePrograms=[main,depth,skies,skyLut,...post.programs];
+  function checkActors(){
+    try{for(const program of actors.programs??[])program.resolve();}
+    catch(error){
+      console.info('Detailed actors unavailable',error.message);
+      actors.dispose?.();actors=noActors;
+    }
   }
   const geometries={
     roof:faceMesh(roofFaces),chamfer:faceMesh(chamferFaces),taper:faceMesh(taperFaces),
@@ -196,7 +186,7 @@ export function createRenderer(canvas){
     return [kind,{buffer,mesh:instanceMesh(kind,buffer,0,0),scratch:new Float32Array(0)}];
   }));
   const paneBuffer=gl.createBuffer(),paneMesh=instanceMesh('pane',paneBuffer,0,0);
-  const surfaceTexture=gl.createTexture();
+  let surfaceTexture=gl.createTexture();
   gl.activeTexture(gl.TEXTURE1);
   gl.bindTexture(gl.TEXTURE_2D_ARRAY,surfaceTexture);
   gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,1,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([128,128,190,128]));
@@ -213,13 +203,17 @@ export function createRenderer(canvas){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
-  let skyFramebuffer=null;
-  if(floatColor){
+  // Made on the first sky render: a completeness check here would wait for the shader compiles.
+  let skyFramebuffer=null,skyTarget=floatColor?undefined:null;
+  function skyRenderTarget(){
+    if(skyTarget!==undefined)return skyTarget;
     skyFramebuffer=gl.createFramebuffer();
     gl.bindFramebuffer(gl.FRAMEBUFFER,skyFramebuffer);
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,skyTexture,0);
     if(gl.checkFramebufferStatus(gl.FRAMEBUFFER)!==gl.FRAMEBUFFER_COMPLETE){gl.deleteFramebuffer(skyFramebuffer);skyFramebuffer=null;}
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
+    skyTarget=skyFramebuffer;
+    return skyTarget;
   }
   // Shadow atlas: two cascades side by side, sampled with hardware comparison and as raw depth.
   const compareSampler=gl.createSampler(),rawSampler=gl.createSampler();
@@ -235,14 +229,27 @@ export function createRenderer(canvas){
   gl.bindTexture(gl.TEXTURE_2D,placeholderShadow);
   gl.texStorage2D(gl.TEXTURE_2D,1,gl.DEPTH_COMPONENT16,1,1);
   gl.activeTexture(gl.TEXTURE0);
-  let surfacesReady=false;
+  let surfacesReady=false,materialUpload=null;
+  // Image-generated textures: a layer array and a small float table (see generated-textures.js).
+  // 1x1 placeholders keep the samplers valid until the textures arrive.
+  let photoTexture=gl.createTexture(),photoUpload=null,photoReady=false;
+  gl.activeTexture(gl.TEXTURE5);
+  gl.bindTexture(gl.TEXTURE_2D_ARRAY,photoTexture);
+  gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,1,1,1,0,gl.RGBA,gl.UNSIGNED_BYTE,new Uint8Array([128,128,128,255]));
+  const photoTable=gl.createTexture();
+  gl.activeTexture(gl.TEXTURE6);
+  gl.bindTexture(gl.TEXTURE_2D,photoTable);
+  gl.texStorage2D(gl.TEXTURE_2D,1,gl.RGBA32F,PHOTO_TABLE_WIDTH,PHOTO_TABLE_ROWS);
+  for(const [k,v] of [[gl.TEXTURE_MIN_FILTER,gl.NEAREST],[gl.TEXTURE_MAG_FILTER,gl.NEAREST]])gl.texParameteri(gl.TEXTURE_2D,k,v);
+  gl.activeTexture(gl.TEXTURE0);
   let paneData=new Float32Array(0);
   let scene=[],sceneSet=new Set(),residentBytes=0,renderedFrames=0,detailRadius=227,viewRadius=435;
   let quality='auto',autoScale=1,previousWalkers;
+  let flash=new Float32Array(4),flashColor=[1,.6,.3];
   let shadowBuffer=null,shadowUnsupported=false,shadowDirty=true;
   const cascades=[{range:38,snap:4,key:'',last:-Infinity,matrix:null,planes:null},{range:205,snap:40,key:'',last:-Infinity,matrix:null,planes:null}];
   let skyKey='',model=null,modelTime=-Infinity,lutDirty=true;
-  let exposure=8.2,frameIndex=0,previousVP=null,previousEye=null,previousSize='';
+  let exposure=8.2,frameIndex=0,previousVP=null,previousEye=null,previousSize='',previousTime=null;
   let clientWidth=canvas.clientWidth,clientHeight=canvas.clientHeight;
   const resize=typeof ResizeObserver==='function'?new ResizeObserver(([entry])=>{
     clientWidth=entry.contentRect.width;
@@ -315,6 +322,76 @@ export function createRenderer(canvas){
     residents.set(batch,{buffer,meshes:new Map(),used:renderedFrames});
     residentBytes+=batch.data.byteLength;
     shadowDirty=true;
+  }
+
+  function continueMaterialUpload(){
+    const job=materialUpload,layer=MATERIAL_SIZE*MATERIAL_SIZE*4,count=Math.min(4,surfaceProfiles.length-job.next);
+    gl.activeTexture(gl.TEXTURE4);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY,job.texture);
+    gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,job.next,MATERIAL_SIZE,MATERIAL_SIZE,count,gl.RGBA,gl.UNSIGNED_BYTE,
+      job.bytes.subarray(job.next*layer,(job.next+count)*layer));
+    job.next+=count;
+    if(job.next>=surfaceProfiles.length){
+      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_T,gl.REPEAT);
+      if(anisotropic)gl.texParameterf(gl.TEXTURE_2D_ARRAY,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,
+        Math.min(mobile?4:8,gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      gl.deleteTexture(surfaceTexture);
+      surfaceTexture=job.texture;materialUpload=null;surfacesReady=true;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // A few photo layers per frame, then mipmaps; the table switches them on in one step.
+  function continuePhotoUpload(){
+    const job=photoUpload;
+    gl.activeTexture(gl.TEXTURE7);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY,job.texture);
+    // About 2.4 MB per frame: four 384 px layers, six at 320 px or twelve at 224 px.
+    const perFrame=Math.max(1,Math.round(2.4e6/(job.tile*job.tile*4)));
+    for(let n=0;n<perFrame&&job.next<job.layers.length;n++,job.next++){
+      const image=job.layers[job.next];
+      gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,job.next,job.tile,job.tile,1,gl.RGBA,gl.UNSIGNED_BYTE,image);
+      image.close?.();job.layers[job.next]=null;
+      if(job.blit)shrinkLayer(job,job.next);
+    }
+    if(job.next>=job.layers.length){
+      // generateMipmap over the whole array stalls the GPU for a long moment, so each layer's
+      // chain is filtered by blits as it arrives; the call is only the fallback.
+      if(!job.blit)gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      for(const framebuffer of [job.read,job.draw])gl.deleteFramebuffer(framebuffer);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.REPEAT);
+      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_T,gl.REPEAT);
+      if(anisotropic)gl.texParameterf(gl.TEXTURE_2D_ARRAY,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,
+        Math.min(mobile?4:8,gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      gl.activeTexture(gl.TEXTURE6);
+      gl.bindTexture(gl.TEXTURE_2D,photoTable);
+      gl.texSubImage2D(gl.TEXTURE_2D,0,0,0,PHOTO_TABLE_WIDTH,PHOTO_TABLE_ROWS,gl.RGBA,gl.FLOAT,job.table);
+      gl.deleteTexture(photoTexture);
+      photoTexture=job.texture;photoUpload=null;photoReady=true;
+    }
+    gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // Halves one layer down its mip chain with linear blits (level n to n + 1 of the same layer).
+  function shrinkLayer(job,layer){
+    let size=job.tile;
+    for(let level=0;size>1;level++){
+      const next=Math.max(1,size>>1);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,job.read);
+      gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,job.texture,level,layer);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,job.draw);
+      gl.framebufferTextureLayer(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,job.texture,level+1,layer);
+      gl.blitFramebuffer(0,0,size,size,0,0,next,next,gl.COLOR_BUFFER_BIT,gl.LINEAR);
+      size=next;
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null);
   }
 
   function updateActors(walkers){
@@ -407,7 +484,7 @@ export function createRenderer(canvas){
     if(!lutDirty||model.underground)return;
     lutDirty=false;
     const [w,h]=SKY_LUT_SIZE;
-    if(skyFramebuffer){
+    if(skyRenderTarget()){
       gl.bindFramebuffer(gl.FRAMEBUFFER,skyFramebuffer);
       gl.viewport(0,0,w,h);
       gl.disable(gl.DEPTH_TEST);gl.disable(gl.BLEND);
@@ -432,8 +509,15 @@ export function createRenderer(canvas){
       coarse.set(c,(y*cw+x)*3);
     }
     for(let y=0;y<h;y++)for(let x=0;x<w;x++){
-      const cx=Math.min(cw-1,Math.floor(x*cw/w)),cy=Math.min(ch-1,Math.floor(y*ch/h));
-      for(let c=0;c<3;c++)data[(y*w+x)*4+c]=toHalf(coarse[(cy*cw+cx)*3+c]);
+      // Bilinear between coarse texel centers, wrapping around in azimuth.
+      const fx=(x+.5)*cw/w-.5,fy=Math.min(ch-1,Math.max(0,(y+.5)*ch/h-.5));
+      const x0=Math.floor(fx),y0=Math.min(ch-2,Math.floor(fy)),u=fx-x0,v=fy-y0;
+      const a=(x0%cw+cw)%cw,b=(a+1)%cw;
+      for(let c=0;c<3;c++){
+        const at=(i,j)=>coarse[(j*cw+i)*3+c];
+        const top=at(a,y0)+(at(b,y0)-at(a,y0))*u,bottom=at(a,y0+1)+(at(b,y0+1)-at(a,y0+1))*u;
+        data[(y*w+x)*4+c]=toHalf(top+(bottom-top)*v);
+      }
       data[(y*w+x)*4+3]=toHalf(1);
     }
     gl.activeTexture(gl.TEXTURE3);
@@ -474,6 +558,9 @@ export function createRenderer(canvas){
     gl.uniform2fv(u.OceanBearing,lighting.oceanBearing??[-1,0]);
     gl.uniform2f(u.CloudOffset,time*7.5+1800,time*2.6-900);
     gl.uniform1f(u.CloudCover,lighting.clouds??.42);
+    gl.uniform4fv(u.Flash,flash);
+    if(u.PhotoMaps){gl.uniform1i(u.PhotoMaps,5);gl.uniform1i(u.PhotoTable,6);gl.uniform1f(u.PhotoReady,photoReady?1:0);}
+    gl.uniform3fv(u.FlashColor,flashColor);
     if(u.ShadowVP0){
       gl.uniformMatrix4fv(u.ShadowVP0,false,cascades[0].matrix??identity);
       gl.uniformMatrix4fv(u.ShadowVP1,false,cascades[1].matrix??identity);
@@ -495,7 +582,7 @@ export function createRenderer(canvas){
         Math.round(eye[1]/(cascade.snap*.5))*cascade.snap*.5,Math.round((eye[2]+forward[2]*ahead)/cascade.snap)*cascade.snap];
       const key=model.sun.map(n=>Math.round(n*400)).join(',')+':'+anchor.join(',');
       const moved=key!==cascade.key;
-      const due=moved||shadowDirty&&time-cascade.last>=(index?.12:.08)||movedActors&&index===0&&time-cascade.last>=.06;
+      const due=moved||shadowDirty&&time-cascade.last>=(index?.12:.08)||movedActors&&time-cascade.last>=(index?.2:.06);
       if(!due)continue;
       if(moved){
         cascade.matrix=shadowProjection(model.sun,anchor,size,cascade.range);
@@ -517,8 +604,8 @@ export function createRenderer(canvas){
       gl.uniformMatrix4fv(depth.u.VP,false,cascade.matrix);
       const casters=scene.filter(batch=>inFrustum(batch.bounds,cascade.planes));
       drawBatches(casters,cascade.planes,eye);
-      if(index===0||cascade.range<80)for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
-      actors.drawShadows(cascade.matrix,time,eye);
+      for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
+      actors.drawShadows(cascade.matrix,time,eye,cascade.planes);
       useWorldProgram(depth);
       gl.uniformMatrix4fv(depth.u.VP,false,cascade.matrix);
       cascade.last=time;
@@ -531,8 +618,17 @@ export function createRenderer(canvas){
     }
   }
 
-  function render(eye,to,lighting,time,walkers,arrival,signal=SIGNAL_GREEN,inHand=null){
+  // inHand: things held in front of the camera; options: fov (degrees, for this frame), blur (0-1
+  // speed blur) and light (one dynamic point light).
+  function render(eye,to,lighting,time,walkers,arrival,signal=SIGNAL_GREEN,inHand=null,options={}){
     renderedFrames++;frameIndex++;
+    if(materialUpload)continueMaterialUpload();
+    if(photoUpload)continuePhotoUpload();
+    const fov=options.fov?clampFov(options.fov)*rad:FOV;
+    // A single dynamic light per frame, for example an explosion: {position, intensity, color}.
+    const light=options.light;
+    flash.set(light?.intensity>0?[...light.position,light.intensity]:[0,0,0,0]);
+    if(light?.color)flashColor=light.color;
     const movedActors=walkers!==previousWalkers;
     updateActors(walkers);
     updateHeld(inHand);
@@ -549,7 +645,8 @@ export function createRenderer(canvas){
       if(!floatColor)throw error;
       console.info('Float render targets unavailable',error.message);
       post.dispose();floatColor=false;
-      post=createPost(gl,{floatColor});
+      post=createPost(gl,{floatColor,compileProgram});
+      for(const program of post.programs)program.resolve();
       post.resize(w,h);
     }
     const taa=quality!=='low'&&floatColor;
@@ -557,12 +654,14 @@ export function createRenderer(canvas){
     const bloom=quality!=='low'&&floatColor;
     updateSky(lighting,time);
     const targetExposure=model.underground?6:8.2;
-    exposure+=(targetExposure-exposure)*.08;
+    const step=previousTime===null?1:Math.min(.25,Math.max(0,time-previousTime));
+    previousTime=time;
+    exposure+=(targetExposure-exposure)*(1-Math.exp(-step*4.8));
     renderSkyTexture();
 
     const jitter=taa?jitterSequence[frameIndex%jitterSequence.length]:[0,0];
     const jx=jitter[0]*2/w,jy=jitter[1]*2/h;
-    const plain=cameraProjection(eye,to,w/h);
+    const plain=cameraProjection(eye,to,w/h,fov);
     const vp=new Float32Array(plain);
     for(let i=0;i<4;i++){vp[i*4]+=jx*vp[i*4+3];vp[i*4+1]+=jy*vp[i*4+3];}
     const planes=frustumPlanes(plain);
@@ -611,6 +710,10 @@ export function createRenderer(canvas){
     gl.bindTexture(gl.TEXTURE_2D_ARRAY,surfaceTexture);
     gl.activeTexture(gl.TEXTURE3);
     gl.bindTexture(gl.TEXTURE_2D,skyTexture);
+    gl.activeTexture(gl.TEXTURE5);
+    gl.bindTexture(gl.TEXTURE_2D_ARRAY,photoTexture);
+    gl.activeTexture(gl.TEXTURE6);
+    gl.bindTexture(gl.TEXTURE_2D,photoTable);
     gl.activeTexture(gl.TEXTURE0);
     useWorldProgram(main);
     sendLighting(main.u,lighting,time,shadows);
@@ -624,12 +727,11 @@ export function createRenderer(canvas){
     gl.uniform4fv(main.u.ViewCone,cone);
     gl.uniform3fv(main.u.ViewEye,eye);
     drawBatches(front,planes,eye);
-    gl.uniform1f(main.u.Dynamic,1);
     for(const [kind,actor] of Object.entries(people))if(kind!=='effect')drawMesh(actor.mesh);
     gl.uniform4f(main.u.ViewCone,0,0,0,0);
     for(const slot of Object.values(held))drawMesh(slot.mesh);
     gl.uniform4fv(main.u.ViewCone,cone);
-    actors.draw({vp,eye,time,send:u=>sendLighting(u,lighting,time,shadows)});
+    actors.draw({vp,eye,time,planes,send:u=>sendLighting(u,lighting,time,shadows)});
     useWorldProgram(main);
 
     const right=unit(cross(forward,[0,1,0])),up=cross(right,forward);
@@ -659,9 +761,18 @@ export function createRenderer(canvas){
     const moved=previousEye?Math.hypot(eye[0]-previousEye[0],eye[1]-previousEye[1],eye[2]-previousEye[2]):Infinity;
     const sizeKey=w+'x'+h;
     const reset=!previousVP||moved>25||sizeKey!==previousSize;
-    const reproject=product(previousVP??plain,invert(vp));
+    const inverse=invert(vp);
+    const reproject=product(previousVP??plain,inverse);
+    // Speed blur uses the previous position with the current rotation; its strength follows a
+    // fixed shutter time, so it looks the same at any frame rate.
+    let blur=0,blurReproject=null;
+    // Phones skip it unless the high quality setting asks for every effect.
+    if(options.blur>0&&taa&&(quality==='high'||!mobile)&&!reset&&moved>.004){
+      blurReproject=product(cameraProjection(previousEye,previousEye.map((n,i)=>n+forward[i]),w/h,fov),inverse);
+      blur=options.blur*Math.min(1,.0105/Math.max(step,1/240));
+    }
     previousVP=plain;previousEye=[...eye];previousSize=sizeKey;
-    const tan=Math.tan(FOV/2);
+    const tan=Math.tan(fov/2);
     let sun=[0,0,0,0];
     if(!model.underground){
       const clip=[0,1,2,3].map(r=>plain[r]*model.sun[0]+plain[4+r]*model.sun[1]+plain[8+r]*model.sun[2]);
@@ -672,37 +783,87 @@ export function createRenderer(canvas){
       }
     }
     post.run({ssao,taa,bloom,reproject,projection:[tan*w/h,tan,NEAR,FAR],frame:frameIndex,time,reset,
-      outputWidth:w,outputHeight:h,sun,sunTint:model.sunColor,vignette:.3});
+      outputWidth:w,outputHeight:h,sun,sunTint:model.sunColor,vignette:.3,blur,blurReproject,
+      teleport:moved>25,adaptBand:model.underground?ADAPT_BAND_UNDERGROUND:ADAPT_BAND});
     return !arrival||residents.has(arrival)||!inFrustum(arrival.bounds,planes);
   }
 
-  return {
+  const renderer={
     load,render,
     get detailedActors(){return actors.ready;},
+    // The surface maps (about 7.6 MB) go up a few layers per frame instead of in one long stall.
     setMaterials(bytes){
-      gl.activeTexture(gl.TEXTURE1);
-      gl.bindTexture(gl.TEXTURE_2D_ARRAY,surfaceTexture);
-      gl.texImage3D(gl.TEXTURE_2D_ARRAY,0,gl.RGBA8,MATERIAL_SIZE,MATERIAL_SIZE,surfaceProfiles.length,
-        0,gl.RGBA,gl.UNSIGNED_BYTE,bytes);
-      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
-      gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
-      if(anisotropic)gl.texParameterf(gl.TEXTURE_2D_ARRAY,anisotropic.TEXTURE_MAX_ANISOTROPY_EXT,
-        Math.min(mobile?4:8,gl.getParameter(anisotropic.MAX_TEXTURE_MAX_ANISOTROPY_EXT)));
+      if(materialUpload)gl.deleteTexture(materialUpload.texture);
+      const texture=gl.createTexture();
+      gl.activeTexture(gl.TEXTURE4);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY,texture);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY,Math.log2(MATERIAL_SIZE)+1,gl.RGBA8,MATERIAL_SIZE,MATERIAL_SIZE,surfaceProfiles.length);
       gl.activeTexture(gl.TEXTURE0);
-      surfacesReady=true;
+      materialUpload={texture,bytes,next:0};
     },
+    // photos: {tile, layers: ImageBitmap-like sources tile x tile, table: Float32Array} from
+    // loadGeneratedTextures(). The layers go up three per frame.
+    setPhotoTextures({tile,layers,table}){
+      if(!layers?.length)return;
+      if(photoUpload)gl.deleteTexture(photoUpload.texture);
+      const texture=gl.createTexture();
+      gl.activeTexture(gl.TEXTURE7);
+      gl.bindTexture(gl.TEXTURE_2D_ARRAY,texture);
+      gl.texStorage3D(gl.TEXTURE_2D_ARRAY,Math.floor(Math.log2(tile))+1,gl.RGBA8,tile,tile,layers.length);
+      gl.activeTexture(gl.TEXTURE0);
+      // Blit framebuffers for building each layer's mipmaps as it arrives (see shrinkLayer).
+      const read=gl.createFramebuffer(),draw=gl.createFramebuffer();
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,read);
+      gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,texture,0,0);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,draw);
+      gl.framebufferTextureLayer(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,texture,1,0);
+      const blit=gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE&&
+        gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null);
+      photoUpload={texture,tile,layers:[...layers],table,next:0,read,draw,blit};
+    },
+    get photoTextures(){return photoReady;},
     setQuality(value){
       quality=value;autoScale=1;shadowDirty=true;
       for(const cascade of cascades)cascade.key='';
+      // Light mode draws no shadows, so the atlas (8-32 MB of video memory) is released.
+      if(value==='low'&&shadowBuffer){
+        gl.deleteTexture(shadowBuffer.texture);gl.deleteFramebuffer(shadowBuffer.framebuffer);shadowBuffer=null;
+      }
       post.invalidate();
     },
     setAutoScale(value){autoScale=value;},
     dispose(){
       resize?.disconnect();
-      gl.deleteTexture(surfaceTexture);
+      actors.dispose?.();
       post.dispose();
+      for(const resident of residents.values()){
+        for(const mesh of resident.meshes.values())gl.deleteVertexArray(mesh.vao);
+        gl.deleteBuffer(resident.buffer);
+      }
+      residents.clear();
+      for(const actor of Object.values(people)){gl.deleteVertexArray(actor.mesh.vao);gl.deleteBuffer(actor.buffer);}
+      gl.deleteVertexArray(paneMesh.vao);gl.deleteBuffer(paneBuffer);
+      for(const shape of Object.values(geometry)){gl.deleteBuffer(shape.buffer);gl.deleteBuffer(shape.elements);}
+      for(const texture of [surfaceTexture,skyTexture,placeholderShadow,shadowBuffer?.texture,materialUpload?.texture,
+        photoTexture,photoTable,photoUpload?.texture])if(texture)gl.deleteTexture(texture);
+      materialUpload=null;photoUpload=null;
+      for(const framebuffer of [skyFramebuffer,shadowBuffer?.framebuffer])if(framebuffer)gl.deleteFramebuffer(framebuffer);
+      for(const sampler of [compareSampler,rawSampler])gl.deleteSampler(sampler);
+      for(const program of [main,depth,skies,skyLut])try{gl.deleteProgram(program.program);}catch{}
+      shadowBuffer=null;
     }
   };
+  if(wait){
+    for(const program of corePrograms)program.resolve();
+    checkActors();
+    renderer.ready=Promise.resolve(renderer);
+  }else{
+    renderer.ready=whenCompiled(gl,corePrograms)
+      .then(()=>whenCompiled(gl,actors.programs??[]).catch(()=>{}))
+      .then(()=>{checkActors();return renderer;});
+  }
+  return renderer;
 }
 export const normalize=unit;
 export const vectorCross=cross;
