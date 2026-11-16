@@ -2,16 +2,26 @@
 // with a 3x3 grid of seamless textures, and materials/generated/manifest.json lists which world
 // materials use them. Without a manifest the procedural surfaces are used as before.
 export const PHOTO_TABLE_WIDTH=128,PHOTO_TABLE_ROWS=4,PHOTO_MATERIALS=64,PHOTO_VARIANTS=8;
+// Pictures hung in rooms are listed under four extra columns (up to 32), floor rugs under one more.
+export const ART_COLUMN=64,ART_GROUPS=4,RUG_COLUMN=68;
 
 // The lookup table read by the world shader (see photoLayer in architecture-shader.js):
-// rows 0-1, column = material id: up to eight layer indices (-1 = none);
+// rows 0-1, column = material id: up to eight layer indices (-1 = none); columns 64-67 list the
+// pictures for rooms and column 68 the rugs;
 // row 2, column = layer: width and height in meters, tint, mean linear luminance;
 // row 3, column = layer: roughness, relief in meters.
 export function buildPhotoTable(manifest){
   const table=new Float32Array(PHOTO_TABLE_WIDTH*PHOTO_TABLE_ROWS*4);
-  for(let m=0;m<PHOTO_MATERIALS;m++)for(let k=0;k<PHOTO_VARIANTS;k++)
+  for(let m=0;m<=RUG_COLUMN;m++)for(let k=0;k<PHOTO_VARIANTS;k++)
     table[((k>>2)*PHOTO_TABLE_WIDTH+m)*4+(k&3)]=-1;
-  const slots=[],used=new Array(PHOTO_MATERIALS).fill(0);
+  const slots=[],used=new Array(RUG_COLUMN+1).fill(0);
+  const list=(column,layer)=>{
+    if(used[column]>=PHOTO_VARIANTS)return false;
+    const k=used[column]++;
+    table[((k>>2)*PHOTO_TABLE_WIDTH+column)*4+(k&3)]=layer;
+    return true;
+  };
+  let pictures=0;
   for(const sheet of manifest?.sheets??[])for(const [cell,slot] of (sheet.slots??[]).entries()){
     const layer=slots.length;
     if(layer>=PHOTO_TABLE_WIDTH)break;
@@ -25,11 +35,11 @@ export function buildPhotoTable(manifest){
     table[at(2,3)]=Math.max(.005,Number(slot.luma)||.18);
     table[at(3,0)]=Math.min(.97,Math.max(.05,Number(slot.roughness)||.7));
     table[at(3,1)]=Math.max(0,Number(slot.relief)||0);
-    for(const material of slot.materials??[]){
-      if(!Number.isInteger(material)||material<0||material>=PHOTO_MATERIALS||used[material]>=PHOTO_VARIANTS)continue;
-      const k=used[material]++;
-      table[((k>>2)*PHOTO_TABLE_WIDTH+material)*4+(k&3)]=layer;
-    }
+    if(slot.art==='rug')list(RUG_COLUMN,layer);
+    else if(slot.art)for(let g=0;g<ART_GROUPS&&!list(ART_COLUMN+(pictures+g)%ART_GROUPS,layer);g++);
+    if(slot.art&&slot.art!=='rug')pictures++;
+    for(const material of slot.materials??[])
+      if(Number.isInteger(material)&&material>=0&&material<PHOTO_MATERIALS)list(material,layer);
   }
   return {table,slots};
 }

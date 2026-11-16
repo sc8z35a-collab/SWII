@@ -1,5 +1,5 @@
 {
- "about": "Image-generated surface textures. Each sheet is one 1:1 image holding a 3x3 grid of nine textures (row by row). materials: world material ids that use the texture (the first texture listed for a material is its default; buildings pick among all of them). meters: real-world width of one tile. tint: 0 keeps the photo's colors, 1 keeps only its light and shade and takes the color of each building. roughness: base microsurface roughness. relief: bump strength in meters. crop: optional part of the cell to keep (x0, y0, x1, y1 as fractions). flatten: 0-1, how much broad lighting gradients are evened out (default .35). art: a single picture used whole (not tiled), not a surface. mirror: tile as a mirrored 2x2 (for nearly plain materials). uniform: 'x' for patterns that run the full width (each row keeps mostly its average).",
+ "about": "Image-generated surface textures. Each sheet is one 1:1 image holding a 3x3 grid of nine textures (row by row). materials: world material ids that use the texture (the first texture listed for a material is its default; buildings pick among all of them). meters: real-world width of one tile. tint: 0 keeps the photo's colors, 1 keeps only its light and shade and takes the color of each building. roughness: base microsurface roughness. relief: bump strength in meters. crop: optional part of the cell to keep (x0, y0, x1, y1 as fractions). flatten: 0-1, how much broad lighting gradients are evened out (default .35). art: a single picture used whole (not tiled), not a surface. mirror: tile as a mirrored 2x2 (for nearly plain materials). uniform: 'x' for patterns that run the full width (each row keeps mostly its average). art: true for a picture hung whole on the walls of rooms seen through windows, 'rug' for a floor rug.",
  "sheets": [
   {
    "id": "surfaces-1",
@@ -1121,6 +1121,417 @@
      "roughness": 0.82,
      "relief": 0.003,
      "prompt": "fresh black asphalt with uniform fine aggregate, top-down, no markings"
+    }
+   ]
+  },
+  {
+   "id": "atlantis-ruins",
+   "title": "Atlantis: old stone, shore rocks and plaster",
+   "slots": [
+    {
+     "id": "dark-stone-blocks",
+     "materials": [
+      40,
+      20
+     ],
+     "meters": 1.6,
+     "tint": 0.2,
+     "roughness": 0.8,
+     "relief": 0.012,
+     "prompt": "weathered dark grey limestone blocks with moss in the joints, old harbor wall"
+    },
+    {
+     "id": "rubble-wall",
+     "materials": [
+      18
+     ],
+     "meters": 1.8,
+     "tint": 0.2,
+     "roughness": 0.85,
+     "relief": 0.016,
+     "prompt": "old rubble stone wall of rough grey-brown stones"
+    },
+    {
+     "id": "brick-vault",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "old red brick vault seen from below, curved courses, white lime stains"
+    },
+    {
+     "id": "wet-rock",
+     "materials": [
+      18
+     ],
+     "meters": 1.6,
+     "tint": 0.15,
+     "roughness": 0.3,
+     "relief": 0.012,
+     "prompt": "wet black shore rock with rain puddles, glossy"
+    },
+    {
+     "id": "barnacles",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "grey rock covered with clusters of barnacles"
+    },
+    {
+     "id": "algae-wall",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "stone wall with dripping green algae"
+    },
+    {
+     "id": "celtic-knot",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "carved stone band with an interlaced knot pattern"
+    },
+    {
+     "id": "black-marble",
+     "materials": [
+      23
+     ],
+     "meters": 1.5,
+     "tint": 0.15,
+     "roughness": 0.15,
+     "relief": 0.0012,
+     "prompt": "polished black marble with fine white veins",
+     "flatten": 1.0
+    },
+    {
+     "id": "pink-plaster",
+     "materials": [
+      5,
+      48,
+      43
+     ],
+     "meters": 1.6,
+     "tint": 0.35,
+     "roughness": 0.85,
+     "relief": 0.004,
+     "prompt": "weathered pink lime plaster with cracks and patches"
+    }
+   ]
+  },
+  {
+   "id": "atlantis-sea",
+   "title": "Atlantis: the sea",
+   "slots": [
+    {
+     "id": "sea-water",
+     "materials": [
+      3
+     ],
+     "meters": 3.0,
+     "tint": 0,
+     "roughness": 0.1,
+     "relief": 0,
+     "prompt": "clear turquoise sea water over rocks seen from above, sun caustics"
+    },
+    {
+     "id": "tide-pool",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "tide pool with starfish, sea anemones and barnacles"
+    },
+    {
+     "id": "kelp",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "wet kelp and red seaweed"
+    },
+    {
+     "id": "mussels",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "cluster of blue mussels with barnacles"
+    },
+    {
+     "id": "shell-sand",
+     "materials": [
+      36
+     ],
+     "meters": 0.6,
+     "tint": 0.2,
+     "roughness": 0.9,
+     "relief": 0.004,
+     "prompt": "coarse beach sand with small seashells, top-down"
+    },
+    {
+     "id": "octopus-mosaic",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "ancient Roman floor mosaic of an octopus with a meander border"
+    },
+    {
+     "id": "verdigris",
+     "materials": [
+      50,
+      46
+     ],
+     "meters": 1.5,
+     "tint": 0.15,
+     "roughness": 0.55,
+     "relief": 0.004,
+     "prompt": "heavily corroded copper with green verdigris crust"
+    },
+    {
+     "id": "wet-sand",
+     "materials": [
+      36
+     ],
+     "meters": 1.2,
+     "tint": 0.2,
+     "roughness": 0.5,
+     "relief": 0.008,
+     "prompt": "wet beach sand with ripple marks, top-down"
+    },
+    {
+     "id": "bioluminescence",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "glowing blue bioluminescent plankton on dark rocks at night"
+    }
+   ]
+  },
+  {
+   "id": "atlantis-sanctuary",
+   "title": "Atlantis: sanctuary art and stone",
+   "slots": [
+    {
+     "id": "vine-relief",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "carved marble relief of doves among grapevines"
+    },
+    {
+     "id": "effigy",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "marble tomb effigy of a sleeping woman"
+    },
+    {
+     "id": "porphyry",
+     "materials": [
+      23,
+      8
+     ],
+     "meters": 1.2,
+     "tint": 0.15,
+     "roughness": 0.25,
+     "relief": 0.002,
+     "prompt": "polished imperial purple porphyry stone with pale crystals"
+    },
+    {
+     "id": "bronze-panel",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "bronze panel with a foliate cross and green patina, rivets in the corners"
+    },
+    {
+     "id": "onyx",
+     "materials": [
+      23
+     ],
+     "meters": 1.4,
+     "tint": 0.15,
+     "roughness": 0.15,
+     "relief": 0.0012,
+     "prompt": "polished honey onyx slab with translucent veins"
+    },
+    {
+     "id": "fresco",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "faded fresco of two angels holding a sailing ship"
+    },
+    {
+     "id": "icon",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "Byzantine gold icon of a bearded saint holding a ship"
+    },
+    {
+     "id": "iron-grille",
+     "materials": [
+      25
+     ],
+     "meters": 0.9,
+     "tint": 0.3,
+     "roughness": 0.6,
+     "relief": 0.008,
+     "prompt": "wrought iron quatrefoil grille with rivets over a dark background"
+    },
+    {
+     "id": "wax",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "melted white candle wax dripping over stone"
+    }
+   ]
+  },
+  {
+   "id": "atlantis-chapel",
+   "title": "Atlantis: chapel crafts, wood and tiles",
+   "slots": [
+    {
+     "id": "altar-cloth",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "white linen altar cloth with gold embroidery and lace edge"
+    },
+    {
+     "id": "red-planks",
+     "materials": [
+      24,
+      51
+     ],
+     "meters": 1.0,
+     "tint": 0.2,
+     "roughness": 0.6,
+     "relief": 0.004,
+     "prompt": "weathered red-stained wooden planks"
+    },
+    {
+     "id": "olive-burl",
+     "materials": [
+      24
+     ],
+     "meters": 0.6,
+     "tint": 0.2,
+     "roughness": 0.35,
+     "relief": 0.002,
+     "prompt": "polished olive wood burl with swirling grain"
+    },
+    {
+     "id": "soot-plaster",
+     "materials": [
+      58,
+      43
+     ],
+     "meters": 1.6,
+     "tint": 0.3,
+     "roughness": 0.9,
+     "relief": 0.006,
+     "prompt": "plaster wall stained black with soot and peeling"
+    },
+    {
+     "id": "ochre-plaster",
+     "materials": [
+      5,
+      48
+     ],
+     "meters": 1.6,
+     "tint": 0.3,
+     "roughness": 0.85,
+     "relief": 0.004,
+     "prompt": "ochre yellow lime plaster with cracks and patches"
+    },
+    {
+     "id": "azulejo",
+     "materials": [
+      44,
+      49
+     ],
+     "meters": 0.45,
+     "tint": 0.15,
+     "roughness": 0.35,
+     "relief": 0.002,
+     "prompt": "blue and white Portuguese azulejo tiles with crackle glaze"
+    },
+    {
+     "id": "votive-candle",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "red votive candle glass glowing"
+    },
+    {
+     "id": "milagros",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "silver milagros charms: sacred heart, ship and hand"
+    },
+    {
+     "id": "kilim",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": "rug",
+     "prompt": "woven kilim rug with red, blue and cream diamond patterns"
     }
    ]
   }

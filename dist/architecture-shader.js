@@ -11,13 +11,25 @@ const vec3 surfaceScale[${surfaceProfiles.length}]=vec3[](${surfaceProfiles.map(
 // texture layers per material (-1 for none), row 2 holds each layer's width in meters, tint and mean
 // linear luminance, and row 3 its roughness and relief. A building keeps one variant on every part:
 // the choice hashes its position on a 24 m grid. Terrain triangles always use the first layer.
-int photoLayer(int mat){
-  if(uPhotoReady<.5||mat<0||mat>=64)return -1;
-  vec4 a=texelFetch(uPhotoTable,ivec2(mat,0),0),b=texelFetch(uPhotoTable,ivec2(mat,1),0);
+// One of the layers listed in a table column, chosen by pick (0-1); -1 when the column is empty.
+int listedLayer(int column,float pick){
+  if(uPhotoReady<.5)return -1;
+  vec4 a=texelFetch(uPhotoTable,ivec2(column,0),0),b=texelFetch(uPhotoTable,ivec2(column,1),0);
   float count=a.x<0.?0.:a.y<0.?1.:a.z<0.?2.:a.w<0.?3.:b.x<0.?4.:b.y<0.?5.:b.z<0.?6.:b.w<0.?7.:8.;
   if(count<1.)return -1;
-  int i=mat>=26&&mat<=28?0:int(floor(hash(floor(center.xz/24.)+vec2(float(mat)*7.31,3.7))*count*.9999));
+  int i=int(floor(clamp(pick,0.,.9999)*count));
   return int(i==0?a.x:i==1?a.y:i==2?a.z:i==3?a.w:i==4?b.x:i==5?b.y:i==6?b.z:b.w);
+}
+int photoLayer(int mat){
+  if(mat<0||mat>=64)return -1;
+  return listedLayer(mat,mat>=26&&mat<=28?0.:hash(floor(center.xz/24.)+vec2(float(mat)*7.31,3.7)));
+}
+// A picture for a room (columns 64-67) or a rug (column 68), sampled whole with a clamp at its edges.
+vec3 roomPicture(int column,float pick,vec2 uv){
+  int layer=listedLayer(column,pick);
+  if(layer<0)return vec3(-1.);
+  vec3 c=textureLod(uPhotoMaps,vec3(clamp(uv,.004,.996),float(layer)),1.).rgb;
+  return c*c;
 }
 vec3 photoMaterial(vec3 base,inout vec3 normal,int mat,int photo,float footprint,out float roughness,out float cavity){
   vec4 info=texelFetch(uPhotoTable,ivec2(photo,2),0),surface=texelFetch(uPhotoTable,ivec2(photo,3),0);
@@ -152,6 +164,16 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
       albedo=mix(albedo,vec3(.36,.24,.15),shelf);
       albedo=mix(albedo,mix(vec3(.6,.2,.15),vec3(.2,.35,.5),hash(floor(hp.xy*vec2(40.,9.)))),books);
       albedo=mix(albedo,mix(vec3(.75,.62,.45),vec3(.25,.4,.55),pick),art);
+      // A framed picture from the generated art: icons, frescoes, mosaics and sea photographs.
+      float side=min(.95,H*.3);
+      vec2 frame=(hp.xy-vec2(W*.62,H*.56))/side;
+      if(max(abs(frame.x),abs(frame.y))<.5){
+        vec3 picture=roomPicture(64+int(pick3*4.),fract(pick*5.3+pick2*2.1),vec2(frame.x+.5,.5-frame.y));
+        if(picture.x>=0.){
+          float border=1.-step(max(abs(frame.x),abs(frame.y)),.455);
+          albedo=mix(picture,vec3(.11,.08,.05),border);
+        }
+      }
     }
   }else if(t==ty){
     if(safe.y<0.){
@@ -160,7 +182,8 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
         float plank=fract(hp.x*4.2+floor(hp.z*.8+hash(vec2(floor(hp.x*4.2),5.))*3.)*.37);
         albedo*=.86+.18*hash(vec2(floor(hp.x*4.2),floor(hp.z*.8)))-.12*(1.-smoothstep(.0,.04,min(plank,1.-plank)));
         float rug=step(abs(hp.x-W*.5),W*.28)*step(abs(hp.z-D*.45),D*.22);
-        albedo=mix(albedo,mix(vec3(.55,.48,.40),vec3(.30,.36,.44),pick),rug*step(.3,pick2));
+        vec3 woven=roomPicture(68,pick,vec2((hp.x-W*.22)/(W*.56),(hp.z-D*.23)/(D*.44)));
+        albedo=mix(albedo,woven.x>=0.?woven:mix(vec3(.55,.48,.40),vec3(.30,.36,.44),pick),rug*step(.3,pick2));
       }else albedo*=.92+.1*noise(hp.xz*6.);
     }else{
       albedo=vec3(.84,.83,.80);normal=vec3(0.,-1.,0.);

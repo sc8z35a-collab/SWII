@@ -154,6 +154,10 @@ def flatten(tile, amount):
         return tile
     blurred = tile.filter(ImageFilter.GaussianBlur(tile.width / 5))
     mean = ImageStat.Stat(tile).mean
+    if numpy is not None:
+        data, low = numpy.asarray(tile, dtype=numpy.float64), numpy.asarray(blurred, dtype=numpy.float64)
+        gain = numpy.array(mean) / numpy.maximum(low, 1)
+        return Image.fromarray(numpy.clip(numpy.round(data * (1 + (gain - 1) * amount)), 0, 255).astype(numpy.uint8))
     channels = []
     for band, low, average in zip(tile.split(), blurred.split(), mean):
         low_data, out = low.getdata(), []
