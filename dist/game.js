@@ -819,9 +819,13 @@ function playerShadow(out,now){
   bodyTime=now;
   const stride=speed>3.2?2.3:1.42;
   bodyPhase=(bodyPhase+speed*dt/stride*Math.PI*2)%(Math.PI*2);
-  humanInstance(out.shadowHumans??=[],{x:motion.x,y:motion.y,z:motion.z,yaw:speed>.3?Math.atan2(motion.vx,-motion.vz):yaw,
-    scale:1,build:1,phase:bodyPhase,gait:clamp(speed/1.4,0,1),stride,
-    skin:'c8a080',hair:'2a2420',top:'3b4a5c',bottom:'2b3446',shoe:'1c1c1e',style:0});
+  // The body faces where the camera looks, so looking down shows the chest, legs and feet in front.
+  // The eyes sit about 10 cm in front of the body's center, so the body is drawn that much behind the camera.
+  const facing=heading(yaw),back=.1;
+  const body={x:motion.x-Math.sin(facing)*back,y:motion.y,z:motion.z+Math.cos(facing)*back,yaw:facing,scale:1,build:1,phase:bodyPhase,
+    gait:clamp(speed/1.4,0,1),stride,skin:'c8a080',hair:'2a2420',top:'3b4a5c',bottom:'2b3446',shoe:'1c1c1e'};
+  humanInstance(out.shadowHumans??=[],{...body,style:0});
+  if(save.showBody!==false)humanInstance(out.humans??=[],{...body,style:1<<19});
 }
 // Camera shake from the launch, nearby explosions and the giant's footsteps.
 function cameraShake(view,eye){

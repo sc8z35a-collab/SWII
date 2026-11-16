@@ -4,7 +4,8 @@ import {gzipSync} from 'node:zlib';
 import {cities,build} from '../dist/world.js';
 import {normalize,vectorCross} from '../dist/engine.js';
 import {limits,districts,districtAt,toGlobal,toLocal,GRID_STEP,TILE_SIZE,TILE_COLS,TILE_ROWS,WORLD_VERSION,toTile,tileOrigin,hasTile,rawHeight,surfaceAt,liquidAt,waterLevel,flatLandmarks,rioShore} from '../dist/geography.js';
-import {cells,meshKinds as kinds,encodeTile} from '../dist/tiles.js';
+import {cells,meshKinds as kinds,encodeTile,propBlocks,blockFootprint,overlaps,BLOCK_STRIDE} from '../dist/tiles.js';
+import {BODY_HEIGHT,BODY_RADIUS,STEP_UP} from '../dist/physics.js';
 import {blockLanes,makeRoutes,makeRoadIndex,roadStyle} from './layout.mjs';
 import {facadeBuilder} from './streets.mjs';
 import {addedStreetStyles,denseTowerPlans,fitHeight,streetStyle,streetStyleCount,towerPlans} from './architecture.mjs';
@@ -841,6 +842,46 @@ if(process.argv.includes('--pedestrians-only')){
   process.exit(0);
 }
 let total=0,rawTotal=0,physicsTotal=0,instances=0;
+// Prop colliders, copied into every tile a prop reaches so a body is stopped on either side of a border.
+const blockSets=new Map();
+for(let j=0;j<TILE_ROWS;j++)for(let i=0;i<TILE_COLS;i++){
+  const list=propBlocks(world.tile(i,j));
+  for(let k=0;k<list.length;k+=BLOCK_STRIDE){
+    const reach=Math.hypot(list[k+2],list[k+3])+.6;
+    const [a,b]=[list[k],list[k+1]];
+    for(let n=-1;n<=1;n++)for(let m=-1;m<=1;m++){
+      const ti=i+m,tj=j+n;
+      if(ti<0||tj<0||ti>=TILE_COLS||tj>=TILE_ROWS)continue;
+      const [x0,z0]=tileOrigin(ti,tj);
+      const dx=Math.max(x0-a,0,a-(x0+TILE_SIZE)),dz=Math.max(z0-b,0,b-(z0+TILE_SIZE));
+      if(dx>reach||dz>reach)continue;
+      const key=ti+','+tj;
+      if(!blockSets.has(key))blockSets.set(key,[]);
+      blockSets.get(key).push(...list.slice(k,k+BLOCK_STRIDE));
+    }
+  }
+}
+// Pedestrian route points that land inside a prop (a pole, a bench) move to the nearest free spot, so
+// people walk around props instead of through them.
+function propAt(x,y,z){
+  const [i,j]=toTile(x,z),list=blockSets.get(i+','+j)??[],solids=world.tile(i,j)?.solids??[];
+  if(overlaps(solids,x,z,.37))return true;
+  for(let k=0;k<list.length;k+=BLOCK_STRIDE){
+    if(list[k+6]>=y+(list[k+8]===2?.9:BODY_HEIGHT)||list[k+7]<=y+STEP_UP)continue;
+    if(blockFootprint(list,k,x,z,BODY_RADIUS+.05))return true;
+  }
+  return false;
+}
+let nudged=0;
+for(const person of world.pedestrians)for(const point of person.path){
+  const [x,y,z]=point;
+  if(!propAt(x,y,z))continue;
+  search:for(const r of [.25,.45,.7,1,1.4,1.9])for(let a=0;a<16;a++){
+    const nx=x+Math.cos(a*Math.PI/8)*r,nz=z+Math.sin(a*Math.PI/8)*r;
+    if(!propAt(nx,y,nz)){point[0]=nx;point[2]=nz;nudged++;break search;}
+  }
+}
+let blockTotal=0;
 for(let j=0;j<TILE_ROWS;j++)for(let i=0;i<TILE_COLS;i++){
   const tile=world.tile(i,j),[x,z]=tileOrigin(i,j),heights=[],palette=[],normals=[];
   for(let n=0;n<=cells;n++)for(let m=0;m<=cells;m++)heights.push(elevation[(j*cells+n)*(cols+1)+i*cells+m]);
@@ -851,7 +892,8 @@ for(let j=0;j<TILE_ROWS;j++)for(let i=0;i<TILE_COLS;i++){
     const dz=(heightAt(a,b+GRID_STEP)-heightAt(a,b-GRID_STEP))/(2*GRID_STEP),length=Math.hypot(dx,1,dz);
     normals.push(packSlope(-dx/length,-dz/length));
   }
-  const data={...tile,heights,palette,normals};
+  const blocks=blockSets.get(i+','+j)??[];blockTotal+=blocks.length/BLOCK_STRIDE;
+  const data={...tile,blocks,heights,palette,normals};
   const buffer=encodeTile(data),packed=gzipSync(Buffer.from(buffer),{level:9});
   const collision=encodeTile(data,false);
   await Promise.all([writeFile(out+i+'-'+j+'.bin',packed),writeFile(out+'physics/'+i+'-'+j+'.bin',Buffer.from(collision))]);
@@ -871,7 +913,7 @@ const parkLocations=parks.map(({style,city,name,approach,yaw})=>({
 await writeFile(new URL('../dist/park-locations.js',import.meta.url),
   'export const parkLocations='+serializeArchitecture(parkLocations)+';\n');
 const stats={version:WORLD_VERSION,width:limits.east-limits.west,depth:limits.south-limits.north,tiles:TILE_COLS*TILE_ROWS,
-  buildings:world.buildings,roads:world.routes.length,roadMeters:world.meters,instances,tileBytes:total,rawTileBytes:rawTotal,physicsTileBytes:physicsTotal,
+  buildings:world.buildings,roads:world.routes.length,roadMeters:world.meters,instances,tileBytes:total,rawTileBytes:rawTotal,physicsTileBytes:physicsTotal,propColliders:blockTotal,pedestrianPointsMoved:nudged,
   buildingStyles:world.styles.size,appearanceVariants:world.appearances.size,renovationStyles:[...world.renovations].sort(),
   streetStyles:streetStyleCount,addedStreetStyles,towerForms:towerForms.length,addedTowers:world.denseTowers,
   books:world.books.length,haunts:world.haunts.length/3,

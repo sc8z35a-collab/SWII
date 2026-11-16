@@ -2,10 +2,50 @@ import {GRID_STEP,TILE_SIZE,TILE_COLS,WORLD_VERSION,hasTile,highestWaterLevel,ti
 import {fixtureFootprints} from './fixture-footprints.js';
 
 export const meshKinds=['tri','box','tube','cone','pyramid','ball','roof','chamfer','taper','window','pane'];
+// A block: center x, z, half width and depth along its own axes (width along the direction (c, s) in x and
+// z), that direction's c and s, bottom and
+// top heights, and a shape code: 0 a rectangle, 1 round (poles, trunks: an ellipse), 2 round foliage,
+// which only stops a body when it reaches below the waist (a bush, not a canopy overhead).
+export const BLOCK_STRIDE=9;
+const solidKinds=['box','chamfer','taper','roof','tube','cone','pyramid','ball'],roundKinds=new Set(['tube','cone','ball']);
+// Materials that never stop a body: glass, water and the effect sprites.
+const passable=new Set([3,22,39,59,60,61,62,63]);
+// Turns the visible instances of a tile into colliders. Building-sized volumes are left to the footprints
+// (solids), which keep lobby entrances open; everything smaller collides exactly where it is drawn.
+export function propBlocks(tile){
+  const blocks=[];
+  for(const kind of solidKinds){
+    const list=tile[kind];
+    if(!list)continue;
+    for(let i=0;i<list.length;i+=16){
+      const mat=Math.floor(list[i+15]);
+      if(mat>=64||passable.has(mat))continue;
+      const axes=[[list[i+3],list[i+4],list[i+5]],[list[i+6],list[i+7],list[i+8]],[list[i+9],list[i+10],list[i+11]]];
+      // The heading comes from the most horizontal axis; the footprint is the box projected onto it.
+      let best=axes[0],flat=0;
+      for(const a of axes){const h=Math.hypot(a[0],a[2])*(1-Math.abs(a[1])/(Math.hypot(...a)||1));if(h>flat){flat=h;best=a;}}
+      const length=Math.hypot(best[0],best[2])||1,c=best[0]/length,s=best[2]/length;
+      let hw=0,hd=0,hh=0;
+      for(const a of axes){hw+=Math.abs(a[0]*c+a[2]*s)/2;hd+=Math.abs(-a[0]*s+a[2]*c)/2;hh+=Math.abs(a[1])/2;}
+      if(hh<.01||hw<.015&&hd<.015||Math.min(hw,hd)>3)continue;
+      const foliage=mat===6||mat===45;
+      blocks.push(list[i],list[i+2],hw,hd,c,s,list[i+1]-hh,list[i+1]+hh,foliage?2:roundKinds.has(kind)?1:0);
+    }
+  }
+  return blocks;
+}
+// True when a body of the given radius standing at x, z overlaps the block's footprint.
+export function blockFootprint(list,i,x,z,radius){
+  const dx=x-list[i],dz=z-list[i+1],c=list[i+4],s=list[i+5];
+  const u=dx*c+dz*s,v=-dx*s+dz*c,w=list[i+2]+radius,d=list[i+3]+radius;
+  if(list[i+8])return (u*u)/(w*w)+(v*v)/(d*d)<=1;
+  return Math.abs(u)<=w&&Math.abs(v)<=d;
+}
 export const cells=TILE_SIZE/GRID_STEP;
 const corners=(cells+1)**2;
-const fieldNames=['solids','decks','platforms','roads',...meshKinds];
-const fieldStride=[6,6,8,5,...meshKinds.map(()=>16)];
+// blocks: every visible prop as a 3D collider (see propBlocks), shared by the client and the server.
+const fieldNames=['solids','decks','platforms','blocks','roads',...meshKinds];
+const fieldStride=[6,6,8,BLOCK_STRIDE,5,...meshKinds.map(()=>16)];
 const key=(x,z)=>x+':'+z;
 const layout=(fields,magic,visual)=>{
   const header=8+fields.length*4;
@@ -14,8 +54,8 @@ const layout=(fields,magic,visual)=>{
   const end=visual?paletteEnd+corners*2:heightEnd;
   return {fields,magic,header,heightEnd,paletteEnd,start:Math.ceil(end/4)*4};
 };
-const visualLayout=layout(fieldNames,0x384c5441,true);
-const physicsLayout=layout(fieldNames.slice(0,3),0x38505441,false);
+const visualLayout=layout(fieldNames,0x394c5441,true);
+const physicsLayout=layout(fieldNames.slice(0,4),0x39505441,false);
 
 export function tilePath(x,z,visual=true){
   return './world/'+WORLD_VERSION+'/'+(visual?'':'physics/')+x+'-'+z+'.bin';

@@ -3,9 +3,9 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {gunzipSync} from 'node:zlib';
 import {cities,build,TOKYO_TOWER_SCALE} from '../dist/world.js';
-import {limits,TILE_COLS,TILE_ROWS,WORLD_VERSION,hasTile,liquidAt,tileOrigin,toGlobal,toTile,waterLevel} from '../dist/geography.js';
-import {decodeTile,meshKinds,overlaps,platformHeight,sampleHeight,terrainWater,tilesAround} from '../dist/tiles.js';
-import {RUN_SPEED,WALK_SPEED,discoverable,frameInputs,idleDrive,keepCameraOutOfWalls,landmarks,readInputs,simulate,spawn,stepMotion,terrainSampler} from '../dist/physics.js';
+import {GRID_STEP,TILE_SIZE,limits,TILE_COLS,TILE_ROWS,WORLD_VERSION,hasTile,liquidAt,tileOrigin,toGlobal,toTile,waterLevel} from '../dist/geography.js';
+import {BLOCK_STRIDE,blockFootprint,decodeTile,meshKinds,overlaps,platformHeight,sampleHeight,terrainWater,tilesAround} from '../dist/tiles.js';
+import {BODY_HEIGHT,BODY_RADIUS,RUN_SPEED,STEP_UP,SWIM_DEPTH,SWIM_FACTOR,WALK_SPEED,discoverable,frameInputs,idleDrive,keepCameraOutOfWalls,landmarks,readInputs,simulate,spawn,stepMotion,terrainSampler} from '../dist/physics.js';
 import {createMission} from '../dist/mission.js';
 import {makeRoutes} from '../tools/layout.mjs';
 import {pedestrianPose,peopleMeshes} from '../dist/people.js';
@@ -62,7 +62,17 @@ test('collision lookup preserves exact terrain, water and rotated obstacle resul
       const x=center.x+dx,z=center.z+dz,t=get(x,z),y=sampleHeight(t,x,z);
       const deck=overlaps(t.decks,x,z);
       const blocked=overlaps(t.solids,x,z,.37)||!deck&&terrainWater(t,x,z,y);
-      const expected=blocked?null:platformHeight(t.platforms,x,z,deck?Math.max(y,(waterLevel(x,z)??-.52)+.61):y);
+      let expected=blocked?null:platformHeight(t.platforms,x,z,deck?Math.max(y,(waterLevel(x,z)??-.52)+.61):y);
+      // Prop colliders by brute force over every block in the tile: steps raise the floor, the rest blocks.
+      if(expected!==null){
+        const feet=expected;
+        for(let i=0;i<t.blocks.length&&expected!==null;i+=BLOCK_STRIDE){
+          const top=t.blocks[i+7];
+          if(t.blocks[i+6]>=feet+(t.blocks[i+8]===2?.9:BODY_HEIGHT)||top<=expected)continue;
+          if(top<=feet+STEP_UP){if(blockFootprint(t.blocks,i,x,z,0))expected=top;}
+          else if(blockFootprint(t.blocks,i,x,z,BODY_RADIUS))expected=null;
+        }
+      }
       assert.equal(terrain.support(x,z),expected);
     }
   }
@@ -513,4 +523,36 @@ test('slow frames fit the wire limit and batching keeps each predicted integrati
   assert.equal(idleDrive(true,[...wire,[1,0,0,.4,false]]),false);
   assert.equal(idleDrive(true,[[1,0,0,.4,false]]),true);
   assert.equal(readInputs(frameInputs(2000,1,0,.4,true)).reduce((ms,row)=>ms+row[0],0),230);
+});
+
+test('the player can wade and swim in water, while cars and pursuers still stop at the shore',()=>{
+  const x=-2452,wet=-1298,level=terrain.water(x,wet);
+  assert.ok(Number.isFinite(level),'the Seine has a surface');
+  assert.equal(terrain.support(x,wet),null,'without swimming the water still stops a body');
+  // Shallow water is waded on the riverbed; deep water carries the body with its head above the surface.
+  for(const z of [wet,-1290])
+    assert.equal(terrain.support(x,z,undefined,undefined,true),Math.max(height(x,z),level-SWIM_DEPTH));
+  assert.equal(terrain.water(x,-1300.8),null,'the dry bank has no water');
+  // Walking from the bank into the river, then swimming in the deep middle at under half speed.
+  const player={...spawn(),x,z:-1301.5,y:height(x,-1301.5),yaw:Math.PI,vx:0,vy:0,vz:0,city:'paris'};
+  for(let ms=0;ms<700;ms+=100)simulate(player,frameInputs(100,1,0,Math.PI,false),terrain);
+  assert.ok(player.z>-1299.5&&terrain.water(player.x,player.z)!==null,'the player walked into the water');
+  Object.assign(player,{z:-1291,y:terrain.support(x,-1291,undefined,undefined,true),vz:0});
+  const before=player.z;
+  for(let ms=0;ms<500;ms+=100)simulate(player,frameInputs(100,1,0,Math.PI,false),terrain);
+  const speed=(player.z-before)/.5;
+  assert.ok(speed>WALK_SPEED*SWIM_FACTOR*.8&&speed<WALK_SPEED*SWIM_FACTOR*1.05,'swimming speed '+speed.toFixed(2));
+  assert.ok(player.y<level-.5,'still afloat in deep water');
+});
+
+test('props collide where they are drawn: posts stop a body, low ledges are steps, canopies pass overhead',()=>{
+  const blocks=[0,0,.05,.05,1,0,0,2.4,1, 10,0,1,1,1,0,0,.3,0, 20,0,1.5,1.5,1,0,2.1,3.2,0, 30,0,1.5,1.5,1,0,.95,3,2];
+  const tileAt={x:-100,z:-100,ix:0,iz:0,heights:new Int16Array((TILE_SIZE/GRID_STEP+1)**2),solids:new Float32Array(0),
+    decks:new Float32Array(0),platforms:new Float32Array(0),blocks:new Float32Array(blocks)};
+  const flat=terrainSampler({at:()=>tileAt});
+  assert.equal(flat.support(.2,0,0),null,'a 10 cm post blocks a 0.3 m body');
+  assert.equal(flat.support(.4,0,0),0,'and the body passes beside it');
+  assert.ok(Math.abs(flat.support(10,0,0)-.3)<1e-6,'a 0.3 m ledge is a step');
+  assert.equal(flat.support(20,0,0),0,'a sign at 2.1 m passes over the head');
+  assert.equal(flat.support(30,0,0),0,'a canopy from 0.95 m gives way');
 });
