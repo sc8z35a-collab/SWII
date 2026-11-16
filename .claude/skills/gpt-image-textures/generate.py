@@ -105,7 +105,7 @@ def pattern_period(gray, axis):
     line = corr[0, :n] if axis == 0 else corr[:n, 0]
     overlap = n - numpy.arange(n)  # unbiased: fewer pixels overlap at large lags
     line = line / overlap / max(line[0] / n, 1e-9)
-    low, high = int(n * .1), int(n * .62)
+    low, high = max(6, int(n * .035)), int(n * .62)
     best = None
     for lag in range(low, high):
         if line[lag] > line[lag - 1] and line[lag] >= line[lag + 1] and line[lag] > .3:

@@ -7,6 +7,151 @@
  "grid": 3,
  "sheets": [
   {
+   "id": "exteriors-brick-tile",
+   "file": "exteriors-brick-tile.webp",
+   "slots": [
+    {
+     "id": "brick-english",
+     "materials": [
+      13
+     ],
+     "meters": 0.9,
+     "tint": 0.2,
+     "roughness": 0.78,
+     "relief": 0.008,
+     "luma": 0.1408,
+     "size": [
+      0.495,
+      0.706
+     ]
+    },
+    {
+     "id": "brick-clinker",
+     "materials": [
+      13
+     ],
+     "meters": 0.85,
+     "tint": 0.2,
+     "roughness": 0.7,
+     "relief": 0.008,
+     "luma": 0.0531,
+     "size": [
+      0.834,
+      0.832
+     ]
+    },
+    {
+     "id": "brick-white",
+     "materials": [
+      13
+     ],
+     "meters": 0.85,
+     "tint": 0.5,
+     "roughness": 0.82,
+     "relief": 0.007,
+     "luma": 0.6576,
+     "size": [
+      0.776,
+      0.778
+     ]
+    },
+    {
+     "id": "brick-yellow",
+     "materials": [
+      13
+     ],
+     "meters": 0.8,
+     "tint": 0.2,
+     "roughness": 0.8,
+     "relief": 0.008,
+     "luma": 0.2373,
+     "size": [
+      0.8,
+      0.8
+     ]
+    },
+    {
+     "id": "brick-modern",
+     "materials": [
+      13
+     ],
+     "meters": 1.0,
+     "tint": 0.25,
+     "roughness": 0.72,
+     "relief": 0.006,
+     "luma": 0.1044,
+     "size": [
+      0.95,
+      0.921
+     ]
+    },
+    {
+     "id": "brick-old",
+     "materials": [
+      13
+     ],
+     "meters": 0.8,
+     "tint": 0.2,
+     "roughness": 0.86,
+     "relief": 0.01,
+     "luma": 0.2624,
+     "size": [
+      0.8,
+      0.8
+     ]
+    },
+    {
+     "id": "tile-mosaic",
+     "materials": [
+      33,
+      44,
+      49
+     ],
+     "meters": 0.15,
+     "tint": 0.5,
+     "roughness": 0.35,
+     "relief": 0.002,
+     "luma": 0.6256,
+     "size": [
+      0.3,
+      0.3
+     ]
+    },
+    {
+     "id": "tile-scratch",
+     "materials": [
+      33,
+      44
+     ],
+     "meters": 0.7,
+     "tint": 0.3,
+     "roughness": 0.7,
+     "relief": 0.004,
+     "luma": 0.1199,
+     "size": [
+      0.671,
+      0.671
+     ]
+    },
+    {
+     "id": "tile-green",
+     "materials": [
+      44,
+      49
+     ],
+     "meters": 0.5,
+     "tint": 0.3,
+     "roughness": 0.3,
+     "relief": 0.003,
+     "luma": 0.1127,
+     "size": [
+      0.339,
+      0.345
+     ]
+    }
+   ]
+  },
+  {
    "id": "exteriors-stone",
    "file": "exteriors-stone.webp",
    "slots": [
@@ -21,9 +166,9 @@
      "tint": 0.3,
      "roughness": 0.72,
      "relief": 0.01,
-     "luma": 0.5124,
+     "luma": 0.5129,
      "size": [
-      1.682,
+      1.655,
       1.7
      ]
     },
@@ -72,7 +217,7 @@
      "relief": 0.02,
      "luma": 0.2418,
      "size": [
-      0.75,
+      0.746,
       0.816
      ]
     },
@@ -86,9 +231,9 @@
      "tint": 0.2,
      "roughness": 0.75,
      "relief": 0.008,
-     "luma": 0.056,
+     "luma": 0.0568,
      "size": [
-      1.4,
+      1.319,
       1.4
      ]
     },
@@ -101,9 +246,9 @@
      "tint": 0.2,
      "roughness": 0.8,
      "relief": 0.008,
-     "luma": 0.1712,
+     "luma": 0.1692,
      "size": [
-      1.4,
+      1.319,
       1.4
      ]
     },
@@ -321,10 +466,10 @@
      "tint": 0.4,
      "roughness": 0.3,
      "relief": 0.002,
-     "luma": 0.4776,
+     "luma": 0.4623,
      "size": [
-      2.121,
-      2.6
+      2.552,
+      2.518
      ]
     },
     {
@@ -337,10 +482,10 @@
      "tint": 0.4,
      "roughness": 0.5,
      "relief": 0.012,
-     "luma": 0.3382,
+     "luma": 0.3363,
      "size": [
       0.776,
-      0.796
+      0.839
      ]
     },
     {
@@ -353,10 +498,10 @@
      "tint": 0.15,
      "roughness": 0.55,
      "relief": 0.003,
-     "luma": 0.2174,
+     "luma": 0.2185,
      "size": [
-      2.021,
-      2.2
+      2.125,
+      2.154
      ]
     },
     {
@@ -385,10 +530,10 @@
      "tint": 0.4,
      "roughness": 0.4,
      "relief": 0.004,
-     "luma": 0.2638,
+     "luma": 0.2629,
      "size": [
-      0.475,
-      0.459
+      0.491,
+      0.491
      ]
     },
     {
@@ -483,10 +628,10 @@
      "tint": 0.15,
      "roughness": 0.8,
      "relief": 0.008,
-     "luma": 0.0426,
+     "luma": 0.0425,
      "size": [
       0.85,
-      0.85
+      0.841
      ]
     },
     {
@@ -513,9 +658,9 @@
      "tint": 0.25,
      "roughness": 0.75,
      "relief": 0.008,
-     "luma": 0.1603,
+     "luma": 0.1606,
      "size": [
-      0.939,
+      0.979,
       0.539
      ]
     },
@@ -558,9 +703,9 @@
      "tint": 0.3,
      "roughness": 0.85,
      "relief": 0.01,
-     "luma": 0.0971,
+     "luma": 0.0973,
      "size": [
-      1.279,
+      1.273,
       1.081
      ]
     },
@@ -719,9 +864,9 @@
      "tint": 0.35,
      "roughness": 0.72,
      "relief": 0.006,
-     "luma": 0.365,
+     "luma": 0.3647,
      "size": [
-      1.253,
+      1.359,
       1.4
      ]
     },
@@ -1184,10 +1329,10 @@
      "tint": 0.2,
      "roughness": 0.6,
      "relief": 0.004,
-     "luma": 0.073,
+     "luma": 0.0715,
      "size": [
       1.0,
-      0.905
+      0.974
      ]
     },
     {

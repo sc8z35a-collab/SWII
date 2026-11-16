@@ -449,18 +449,18 @@
      "materials": [
       13
      ],
-     "meters": 1.8,
+     "meters": 0.9,
      "tint": 0.2,
      "roughness": 0.78,
      "relief": 0.008,
-     "prompt": "deep red brick wall in English bond, alternating headers and stretchers, flush grey mortar"
+     "prompt": "red brick wall in running bond with flush light grey mortar"
     },
     {
      "id": "brick-clinker",
      "materials": [
       13
      ],
-     "meters": 1.8,
+     "meters": 0.85,
      "tint": 0.2,
      "roughness": 0.7,
      "relief": 0.008,
@@ -471,7 +471,7 @@
      "materials": [
       13
      ],
-     "meters": 1.8,
+     "meters": 0.85,
      "tint": 0.5,
      "roughness": 0.82,
      "relief": 0.007,
@@ -482,7 +482,7 @@
      "materials": [
       13
      ],
-     "meters": 1.8,
+     "meters": 0.8,
      "tint": 0.2,
      "roughness": 0.8,
      "relief": 0.008,
@@ -493,7 +493,7 @@
      "materials": [
       13
      ],
-     "meters": 2.4,
+     "meters": 1.0,
      "tint": 0.25,
      "roughness": 0.72,
      "relief": 0.006,
@@ -504,7 +504,7 @@
      "materials": [
       13
      ],
-     "meters": 1.8,
+     "meters": 0.8,
      "tint": 0.2,
      "roughness": 0.86,
      "relief": 0.01,
@@ -517,11 +517,12 @@
       44,
       49
      ],
-     "meters": 1.0,
+     "meters": 0.15,
      "tint": 0.5,
      "roughness": 0.35,
      "relief": 0.002,
-     "prompt": "small square white glass mosaic tiles on a building facade, slight color variation"
+     "prompt": "small square white glass mosaic tiles on a building facade, slight color variation",
+     "mirror": true
     },
     {
      "id": "tile-scratch",
@@ -529,7 +530,7 @@
       33,
       44
      ],
-     "meters": 1.4,
+     "meters": 0.7,
      "tint": 0.3,
      "roughness": 0.7,
      "relief": 0.004,
@@ -541,7 +542,7 @@
       44,
       49
      ],
-     "meters": 1.2,
+     "meters": 0.5,
      "tint": 0.3,
      "roughness": 0.3,
      "relief": 0.003,
