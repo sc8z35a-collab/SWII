@@ -87,7 +87,7 @@ function applyProgress(next){
     autoScale=1;frameAverage=0;stableWindows=0;
     renderer?.setQuality(save.quality);
   }
-  renderer?.setDisplay?.({resolution:save.resolution,reflections:save.reflections});
+  renderer?.setDisplay?.({resolution:save.resolution,reflections:save.reflections,hdr:save.hdr});
   audio.setVolume(save.volume);sound.setVolume(save.volume);
   $('fps').hidden=!save.showFps;
   if(!save.mouseLock&&document.pointerLockElement)document.exitPointerLock?.();
@@ -876,7 +876,7 @@ function frame(now){
   if(!startTime)startTime=now;
   const lightMode=save.quality==='low'&&!renderer.software;
   // The frame rate setting caps the loop; the display's refresh rate is the real ceiling.
-  const target=renderer.software?1000/30:1000/(save.fps||(lightMode?LIGHT_FPS:60));
+  const target=renderer.software?1000/30:save.fps===0?0:1000/(save.fps||(lightMode?LIGHT_FPS:60));
   if(now+1<nextFrame)return;
   nextFrame=Math.max(nextFrame+target,now+target*.35);
   const interval=frameTime?now-frameTime:target;
@@ -939,7 +939,7 @@ function frame(now){
     }
   }else stream(eye[0],eye[2],now,active?null:[goal[0],goal[2]]);
   if(hasMeshes){
-    tuneScale(now,interval,target);
+    tuneScale(now,interval,target||1000/60);
     if(now>=nextWalker){
       const underground=active&&motion.station;
       const focus=active?{x:motion.x,y:motion.y+PLAYER_HEIGHT,z:motion.z,radius:motion.vehicle?2.7:motion.train?.boardedAt?0:1.5}:null;
@@ -992,8 +992,9 @@ const settingRows=[
   {key:'motionBlur',title:'モーションブラー',text:'速く移動しているときに周りを流れるようにぼかします。',options:[[true,'オン'],[false,'オフ']]},
   {key:'shake',title:'画面の揺れ',text:'爆発や巨人の足音、発射の振動で視点が揺れます。',options:[[true,'オン'],[false,'オフ']]},
   {key:'volume',title:'音量',text:'街の音、足音、車、爆発などの効果音です。Mキーで消音を切り替えられます。',options:[[0,'オフ'],[.35,'小'],[.7,'中'],[1,'大']]},
-  {key:'resolution',title:'解像度',text:'自動は画面と動作速度に合わせます。FHDは縦1080、2Kは縦1440ピクセルで描きます（軽量モードは400のまま）。',options:[['auto','自動'],['fhd','FHD'],['2k','2K']]},
-  {key:'fps',title:'フレームレート',text:'1秒あたりの描画回数の上限です。画面のリフレッシュレートより上にはなりません。',options:[[30,'30 fps'],[60,'60 fps'],[120,'120 fps']]},
+  {key:'resolution',title:'解像度',text:'自動は画面と動作速度に合わせます。FHDは縦1080、2Kは縦1440、4Kは縦2160ピクセルで描きます（軽量モードは400のまま）。4Kはとても重くなります。',options:[['auto','自動'],['fhd','FHD'],['2k','2K'],['4k','4K']]},
+  {key:'fps',title:'フレームレート',text:'1秒あたりの描画回数の上限です。無制限は画面が表示できる回数（リフレッシュレート）まで描きます。',options:[[30,'30 fps'],[60,'60 fps'],[120,'120 fps'],[0,'無制限']]},
+  {key:'hdr',title:'HDR',text:'明るさの幅が広い16ビットで描き、ブルーム・自動露出・時間方向のアンチエイリアスを使います。なしは8ビットで軽くなります。',options:[[true,'あり'],[false,'なし']]},
   {key:'reflections',title:'反射',text:'ガラス・水面・車の塗装に空や街並みを映します。なしにすると軽くなります。',options:[[true,'あり'],[false,'なし']]},
   {key:'viewDistance',title:'読み込み範囲',text:'周りの街をどこまで読み込んで描くかです。広いほど遠くまで見えますが重くなります。',range:[0,10]},
   {key:'showFps',title:'フレームレート表示',text:'画面の右下に1秒あたりの描画回数を表示します。',options:[[false,'オフ'],[true,'オン']]}
@@ -1237,7 +1238,7 @@ function useRenderer(canvas,next){
   if(scene!==canvas)scene.replaceWith(canvas);
   scene=canvas;renderer=next;
   renderer.setQuality(save.quality);
-  renderer.setDisplay?.({resolution:save.resolution,reflections:save.reflections});
+  renderer.setDisplay?.({resolution:save.resolution,reflections:save.reflections,hdr:save.hdr});
   void loadArchitectureMaterials().then(bytes=>{
     if(renderer===next)next.setMaterials(bytes);
   }).catch(error=>console.info('Architectural materials unavailable',error.message));

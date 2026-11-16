@@ -134,7 +134,9 @@ export function createRenderer(canvas,{wait=true}={}){
   if(!gl)throw Error('WebGL 2 unavailable');
   // Lets drivers build the programs on worker threads and report progress without blocking.
   gl.getExtension('KHR_parallel_shader_compile');
-  let floatColor=!!gl.getExtension('EXT_color_buffer_float');
+  // floatColor: the scene is rendered in HDR (16-bit float); hdrCapable: the device can.
+  const hdrCapable=!!gl.getExtension('EXT_color_buffer_float');
+  let floatColor=hdrCapable;
   const anisotropic=gl.getExtension('EXT_texture_filter_anisotropic');
   const mobile=matchMedia('(pointer:coarse)').matches;
   const main=compileProgram(gl,worldVertex,worldFragment);
@@ -204,7 +206,7 @@ export function createRenderer(canvas,{wait=true}={}){
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_S,gl.REPEAT);
   gl.texParameteri(gl.TEXTURE_2D,gl.TEXTURE_WRAP_T,gl.CLAMP_TO_EDGE);
   // Made on the first sky render: a completeness check here would wait for the shader compiles.
-  let skyFramebuffer=null,skyTarget=floatColor?undefined:null;
+  let skyFramebuffer=null,skyTarget=hdrCapable?undefined:null;
   function skyRenderTarget(){
     if(skyTarget!==undefined)return skyTarget;
     skyFramebuffer=gl.createFramebuffer();
@@ -639,7 +641,7 @@ export function createRenderer(canvas,{wait=true}={}){
     const normalScale=Math.min(dpi,quality==='high'?1.5:mobile?1:1.25);
     // The light mode renders 400 lines and lets the browser enlarge the picture.
     // A fixed resolution (FHD 1080 or 2K 1440 lines) replaces the automatic scale outside the light mode.
-    const lines=resolution==='2k'?1440:resolution==='fhd'?1080:0;
+    const lines=resolution==='4k'?2160:resolution==='2k'?1440:resolution==='fhd'?1080:0;
     const scale=quality==='low'?Math.min(dpi,LIGHT_LINES/Math.max(1,clientHeight)):lines?lines/Math.max(1,clientHeight):
       quality==='auto'?normalScale*autoScale:normalScale;
     const w=Math.max(1,Math.round(clientWidth*scale)),h=Math.max(1,Math.round(clientHeight*scale));
@@ -838,10 +840,17 @@ export function createRenderer(canvas,{wait=true}={}){
       post.invalidate();
     },
     setAutoScale(value){autoScale=value;},
-    // resolution: 'auto', 'fhd' or '2k'; reflections: false draws glass, water and paint without mirror images.
+    // resolution: 'auto', 'fhd', '2k' or '4k'; hdr: false for 8-bit rendering; reflections: false draws glass, water and paint without mirror images.
     setDisplay(options){
       if(options.resolution&&options.resolution!==resolution){resolution=options.resolution;post.invalidate();}
       if(typeof options.reflections==='boolean')reflections=options.reflections;
+      // HDR off renders into 8-bit targets: no temporal antialiasing, bloom or eye adaptation, FXAA instead.
+      const hdr=hdrCapable&&options.hdr!==false;
+      if(typeof options.hdr==='boolean'&&hdr!==floatColor){
+        post.dispose();floatColor=hdr;
+        post=createPost(gl,{floatColor,compileProgram});
+        for(const program of post.programs)program.resolve();
+      }
     },
     dispose(){
       resize?.disconnect();

@@ -111,5 +111,7 @@ test('display settings: resolution, frame rate, reflections and view distance',(
   assert.deepEqual([chosen.resolution,chosen.fps,chosen.reflections,chosen.viewDistance],['2k',120,false,10]);
   const invalid=read({resolution:'8k',fps:144,reflections:'no',viewDistance:11});
   assert.deepEqual([invalid.resolution,invalid.fps,invalid.reflections,invalid.viewDistance],['auto',60,true,0]);
+  const top=read({resolution:'4k',fps:0,hdr:false});
+  assert.deepEqual([top.resolution,top.fps,top.hdr,defaults.hdr],['4k',0,false,true]);
   assert.equal(read({viewDistance:2.5}).viewDistance,0);
 });
