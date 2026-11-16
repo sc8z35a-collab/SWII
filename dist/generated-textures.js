@@ -1,20 +1,21 @@
 // Image-generated surface textures made by the gpt-image-textures skill. Each sheet is a WebP atlas
 // with a 3x3 grid of seamless textures, and materials/generated/manifest.json lists which world
 // materials use them. Without a manifest the procedural surfaces are used as before.
-export const PHOTO_TABLE_WIDTH=128,PHOTO_TABLE_ROWS=4,PHOTO_MATERIALS=64,PHOTO_VARIANTS=8;
+export const PHOTO_TABLE_WIDTH=256,PHOTO_TABLE_ROWS=4,PHOTO_MATERIALS=64,PHOTO_VARIANTS=8;
 // Pictures hung in rooms are listed under four extra columns (up to 32), floor rugs under one more.
-export const ART_COLUMN=64,ART_GROUPS=4,RUG_COLUMN=68;
+export const ART_COLUMN=64,ART_GROUPS=4,RUG_COLUMN=68,CURTAIN_COLUMN=69,BLINDS_COLUMN=70;
+const roomColumns={rug:RUG_COLUMN,curtain:CURTAIN_COLUMN,blinds:BLINDS_COLUMN};
 
 // The lookup table read by the world shader (see photoLayer in architecture-shader.js):
 // rows 0-1, column = material id: up to eight layer indices (-1 = none); columns 64-67 list the
-// pictures for rooms and column 68 the rugs;
+// pictures for rooms, column 68 the rugs, 69 the curtains and 70 the office blinds;
 // row 2, column = layer: width and height in meters, tint, mean linear luminance;
 // row 3, column = layer: roughness, relief in meters.
 export function buildPhotoTable(manifest){
   const table=new Float32Array(PHOTO_TABLE_WIDTH*PHOTO_TABLE_ROWS*4);
-  for(let m=0;m<=RUG_COLUMN;m++)for(let k=0;k<PHOTO_VARIANTS;k++)
+  for(let m=0;m<=BLINDS_COLUMN;m++)for(let k=0;k<PHOTO_VARIANTS;k++)
     table[((k>>2)*PHOTO_TABLE_WIDTH+m)*4+(k&3)]=-1;
-  const slots=[],used=new Array(RUG_COLUMN+1).fill(0);
+  const slots=[],used=new Array(BLINDS_COLUMN+1).fill(0);
   const list=(column,layer)=>{
     if(used[column]>=PHOTO_VARIANTS)return false;
     const k=used[column]++;
@@ -35,9 +36,11 @@ export function buildPhotoTable(manifest){
     table[at(2,3)]=Math.max(.005,Number(slot.luma)||.18);
     table[at(3,0)]=Math.min(.97,Math.max(.05,Number(slot.roughness)||.7));
     table[at(3,1)]=Math.max(0,Number(slot.relief)||0);
-    if(slot.art==='rug')list(RUG_COLUMN,layer);
-    else if(slot.art)for(let g=0;g<ART_GROUPS&&!list(ART_COLUMN+(pictures+g)%ART_GROUPS,layer);g++);
-    if(slot.art&&slot.art!=='rug')pictures++;
+    if(roomColumns[slot.art])list(roomColumns[slot.art],layer);
+    else if(slot.art){
+      for(let g=0;g<ART_GROUPS&&!list(ART_COLUMN+(pictures+g)%ART_GROUPS,layer);g++);
+      pictures++;
+    }
     for(const material of slot.materials??[])
       if(Number.isInteger(material)&&material>=0&&material<PHOTO_MATERIALS)list(material,layer);
   }

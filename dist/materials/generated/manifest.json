@@ -1441,6 +1441,145 @@
      ]
     }
    ]
+  },
+  {
+   "id": "street-details",
+   "file": "street-details.webp",
+   "slots": [
+    {
+     "id": "rolling-shutter",
+     "materials": [
+      53,
+      25
+     ],
+     "meters": 0.9,
+     "tint": 0.3,
+     "roughness": 0.5,
+     "relief": 0.006,
+     "luma": 0.2184,
+     "size": [
+      0.803,
+      0.841
+     ]
+    },
+    {
+     "id": "awning-stripes",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": "curtain",
+     "luma": 0.3302,
+     "size": [
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "ledgestone",
+     "materials": [
+      40,
+      17
+     ],
+     "meters": 1.4,
+     "tint": 0.2,
+     "roughness": 0.8,
+     "relief": 0.012,
+     "luma": 0.3276,
+     "size": [
+      1.4,
+      1.4
+     ]
+    },
+    {
+     "id": "condensation",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "luma": 0.3414,
+     "size": [
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "oak-floor",
+     "materials": [
+      24
+     ],
+     "meters": 1.4,
+     "tint": 0.2,
+     "roughness": 0.45,
+     "relief": 0.002,
+     "luma": 0.3546,
+     "size": [
+      0.936,
+      1.4
+     ]
+    },
+    {
+     "id": "venetian-blinds",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": "blinds",
+     "luma": 0.4947,
+     "size": [
+      1.0,
+      1.0
+     ]
+    },
+    {
+     "id": "carbon-fiber",
+     "materials": [
+      55
+     ],
+     "meters": 0.35,
+     "tint": 0.2,
+     "roughness": 0.3,
+     "relief": 0.002,
+     "luma": 0.0527,
+     "size": [
+      0.331,
+      0.327
+     ]
+    },
+    {
+     "id": "diamond-plate",
+     "materials": [
+      42
+     ],
+     "meters": 0.8,
+     "tint": 0.3,
+     "roughness": 0.6,
+     "relief": 0.006,
+     "luma": 0.0896,
+     "size": [
+      0.783,
+      0.781
+     ]
+    },
+    {
+     "id": "cardboard",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "luma": 0.3305,
+     "size": [
+      1.0,
+      1.0
+     ]
+    }
+   ]
   }
  ]
 }

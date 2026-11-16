@@ -1,5 +1,5 @@
 {
- "about": "Image-generated surface textures. Each sheet is one 1:1 image holding a 3x3 grid of nine textures (row by row). materials: world material ids that use the texture (the first texture listed for a material is its default; buildings pick among all of them). meters: real-world width of one tile. tint: 0 keeps the photo's colors, 1 keeps only its light and shade and takes the color of each building. roughness: base microsurface roughness. relief: bump strength in meters. crop: optional part of the cell to keep (x0, y0, x1, y1 as fractions). flatten: 0-1, how much broad lighting gradients are evened out (default .35). art: a single picture used whole (not tiled), not a surface. mirror: tile as a mirrored 2x2 (for nearly plain materials). uniform: 'x' for patterns that run the full width (each row keeps mostly its average). art: true for a picture hung whole on the walls of rooms seen through windows, 'rug' for a floor rug.",
+ "about": "Image-generated surface textures. Each sheet is one 1:1 image holding a 3x3 grid of nine textures (row by row). materials: world material ids that use the texture (the first texture listed for a material is its default; buildings pick among all of them). meters: real-world width of one tile. tint: 0 keeps the photo's colors, 1 keeps only its light and shade and takes the color of each building. roughness: base microsurface roughness. relief: bump strength in meters. crop: optional part of the cell to keep (x0, y0, x1, y1 as fractions). flatten: 0-1, how much broad lighting gradients are evened out (default .35). art: a single picture used whole (not tiled), not a surface. mirror: tile as a mirrored 2x2 (for nearly plain materials). uniform: 'x' for patterns that run the full width (each row keeps mostly its average). art: true for a picture hung whole on the walls of rooms seen through windows, 'rug' for a floor rug. 'curtain' and 'blinds' dress the windows of rooms.",
  "sheets": [
   {
    "id": "surfaces-1",
@@ -1533,6 +1533,109 @@
      "relief": 0,
      "art": "rug",
      "prompt": "woven kilim rug with red, blue and cream diamond patterns"
+    }
+   ]
+  },
+  {
+   "id": "street-details",
+   "title": "Street details: shutters, fabrics, floors and blinds",
+   "slots": [
+    {
+     "id": "rolling-shutter",
+     "materials": [
+      53,
+      25
+     ],
+     "meters": 0.9,
+     "tint": 0.3,
+     "roughness": 0.5,
+     "relief": 0.006,
+     "prompt": "old steel rolling shop shutter with peeling grey paint and rust"
+    },
+    {
+     "id": "awning-stripes",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": "curtain",
+     "prompt": "faded red and cream striped canvas awning with a scalloped edge"
+    },
+    {
+     "id": "ledgestone",
+     "materials": [
+      40,
+      17
+     ],
+     "meters": 1.4,
+     "tint": 0.2,
+     "roughness": 0.8,
+     "relief": 0.012,
+     "prompt": "stacked ledgestone veneer of thin beige and grey stone strips"
+    },
+    {
+     "id": "condensation",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "window glass covered with condensation and running drops"
+    },
+    {
+     "id": "oak-floor",
+     "materials": [
+      24
+     ],
+     "meters": 1.4,
+     "tint": 0.2,
+     "roughness": 0.45,
+     "relief": 0.002,
+     "prompt": "light oak floorboards with fine grain, top-down"
+    },
+    {
+     "id": "venetian-blinds",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": "blinds",
+     "prompt": "white venetian blinds with cords, closed"
+    },
+    {
+     "id": "carbon-fiber",
+     "materials": [
+      55
+     ],
+     "meters": 0.35,
+     "tint": 0.2,
+     "roughness": 0.3,
+     "relief": 0.002,
+     "prompt": "black carbon fiber twill weave"
+    },
+    {
+     "id": "diamond-plate",
+     "materials": [
+      42
+     ],
+     "meters": 0.8,
+     "tint": 0.3,
+     "roughness": 0.6,
+     "relief": 0.006,
+     "prompt": "black embossed diamond pattern rubber and metal plate"
+    },
+    {
+     "id": "cardboard",
+     "materials": [],
+     "meters": 1,
+     "tint": 0,
+     "roughness": 0.7,
+     "relief": 0,
+     "art": true,
+     "prompt": "creased brown cardboard with clear packing tape"
     }
    ]
   }

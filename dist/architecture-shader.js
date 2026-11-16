@@ -253,13 +253,19 @@ vec3 interiorRadiance(vec2 cell,vec2 f,vec2 size,vec3 dir,vec3 sunLocal,float of
     float low=mix(opening.z,opening.y+.15,pick*blind);
     float slat=step(low,cy)*step(.3,fract(cy*H*14.));
     curtainCover=slat*blind;
-    radiance=mix(radiance,vec3(.70,.70,.68)*daylight*.9,curtainCover);
+    // Photographed blinds where generated: the slats run 1.2 m per repeat of the photo.
+    vec3 blinds=roomPicture(70,pick3,vec2(fract(cp.x/1.2),fract(cp.y/1.2)));
+    if(blinds.x>=0.)curtainCover=step(low,cy)*blind;
+    radiance=mix(radiance,(blinds.x>=0.?blinds:vec3(.70,.70,.68))*daylight*.9,curtainCover);
   }else{
     float width=mix(.12,.42,pick2);
     float folds=.75+.25*sin(cp.x*38.+pick*6.);
     float drape=step(cx,opening.x+width*.5)+step(1.-opening.x-width*.5,cx);
     float sheer=step(.7,pick)*.55;
     vec3 fabric=mix(vec3(.82,.78,.70),mix(vec3(.55,.30,.25),vec3(.30,.38,.45),pick3),step(.4,pick2));
+    // Some rooms hang a photographed fabric (for example faded awning stripes).
+    vec3 printed=roomPicture(69,pick,vec2(fract(cp.x/1.1),fract(cp.y/1.6)));
+    if(printed.x>=0.&&pick3>.8)fabric=mix(fabric,printed,min(drape,1.));
     curtainCover=max(min(drape,1.)*folds,sheer);
     radiance=mix(radiance,fabric*daylight*(.9+.4*folds),curtainCover);
   }

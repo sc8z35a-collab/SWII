@@ -7,12 +7,12 @@ import {materialLayers} from '../dist/architecture-materials.js';
 const catalog=JSON.parse(readFileSync(new URL('../tools/texture-catalog.json',import.meta.url),'utf8'));
 const slots=catalog.sheets.flatMap(sheet=>sheet.slots);
 
-test('the texture catalog: 36 base surfaces, 54 exteriors and 36 Atlantis textures, nine per sheet',()=>{
-  assert.equal(catalog.sheets.length,14);
+test('the texture catalog: 36 base surfaces, 54 exteriors, 36 Atlantis and 9 street textures, nine per sheet',()=>{
+  assert.equal(catalog.sheets.length,15);
   for(const sheet of catalog.sheets)assert.equal(sheet.slots.length,9,sheet.id);
-  assert.equal(new Set(slots.map(s=>s.id)).size,126);
+  assert.equal(new Set(slots.map(s=>s.id)).size,135);
   const group=prefix=>catalog.sheets.filter(s=>s.id.startsWith(prefix)).flatMap(s=>s.slots).length;
-  assert.equal(group('surfaces-'),36);assert.equal(group('exteriors-'),54);assert.equal(group('atlantis-'),36);
+  assert.equal(group('surfaces-'),36);assert.equal(group('exteriors-'),54);assert.equal(group('atlantis-'),36);assert.equal(group('street-'),9);
   for(const slot of slots)if(slot.art)assert.deepEqual(slot.materials,[],slot.id+' is a picture, not a surface');
   const uses=new Map();
   for(const slot of slots){
@@ -30,11 +30,11 @@ test('the photo table lists each material\'s textures and each texture\'s scale'
   const manifest={sheets:catalog.sheets.map(sheet=>({file:sheet.id+'.webp',slots:sheet.slots.map(s=>({...s,luma:.2}))}))};
   const {table,slots:layers}=buildPhotoTable(manifest);
   const cell=(row,column,i)=>table[(row*PHOTO_TABLE_WIDTH+column)*4+i];
-  assert.equal(layers.length,126);
+  assert.equal(layers.length,135);
   // Pictures for rooms are spread over four columns, the kilim is the rug.
   const listed=column=>[0,1,2,3,4,5,6,7].map(i=>cell(i>>2,column,i&3)).filter(v=>v>=0).map(i=>layers[i].id);
-  assert.equal([64,65,66,67].flatMap(listed).length,slots.filter(s=>s.art&&s.art!=='rug').length);
-  assert.deepEqual(listed(68),['kilim']);
+  assert.equal([64,65,66,67].flatMap(listed).length,slots.filter(s=>s.art===true).length);
+  assert.deepEqual(listed(68),['kilim']);assert.deepEqual(listed(69),['awning-stripes']);assert.deepEqual(listed(70),['venetian-blinds']);
   // Brick (13) has its base texture first, then six exterior variants; the eighth slot is empty.
   const brick=[0,1,2,3].map(i=>cell(0,13,i)).concat([0,1,2,3].map(i=>cell(1,13,i)));
   assert.equal(layers[brick[0]].id,'brick');
