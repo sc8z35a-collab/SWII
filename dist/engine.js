@@ -356,9 +356,13 @@ export function createRenderer(canvas,{wait=true}={}){
       const image=job.layers[job.next];
       gl.texSubImage3D(gl.TEXTURE_2D_ARRAY,0,0,0,job.next,job.tile,job.tile,1,gl.RGBA,gl.UNSIGNED_BYTE,image);
       image.close?.();job.layers[job.next]=null;
+      if(job.blit)shrinkLayer(job,job.next);
     }
     if(job.next>=job.layers.length){
-      gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      // generateMipmap over the whole array stalls the GPU for a long moment, so each layer's
+      // chain is filtered by blits as it arrives; the call is only the fallback.
+      if(!job.blit)gl.generateMipmap(gl.TEXTURE_2D_ARRAY);
+      for(const framebuffer of [job.read,job.draw])gl.deleteFramebuffer(framebuffer);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MIN_FILTER,gl.LINEAR_MIPMAP_LINEAR);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_MAG_FILTER,gl.LINEAR);
       gl.texParameteri(gl.TEXTURE_2D_ARRAY,gl.TEXTURE_WRAP_S,gl.REPEAT);
@@ -372,6 +376,22 @@ export function createRenderer(canvas,{wait=true}={}){
       photoTexture=job.texture;photoUpload=null;photoReady=true;
     }
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  // Halves one layer down its mip chain with linear blits (level n to n + 1 of the same layer).
+  function shrinkLayer(job,layer){
+    let size=job.tile;
+    for(let level=0;size>1;level++){
+      const next=Math.max(1,size>>1);
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,job.read);
+      gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,job.texture,level,layer);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,job.draw);
+      gl.framebufferTextureLayer(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,job.texture,level+1,layer);
+      gl.blitFramebuffer(0,0,size,size,0,0,next,next,gl.COLOR_BUFFER_BIT,gl.LINEAR);
+      size=next;
+    }
+    gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);
+    gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null);
   }
 
   function updateActors(walkers){
@@ -791,7 +811,16 @@ export function createRenderer(canvas,{wait=true}={}){
       gl.bindTexture(gl.TEXTURE_2D_ARRAY,texture);
       gl.texStorage3D(gl.TEXTURE_2D_ARRAY,Math.floor(Math.log2(tile))+1,gl.RGBA8,tile,tile,layers.length);
       gl.activeTexture(gl.TEXTURE0);
-      photoUpload={texture,tile,layers:[...layers],table,next:0};
+      // Blit framebuffers for building each layer's mipmaps as it arrives (see shrinkLayer).
+      const read=gl.createFramebuffer(),draw=gl.createFramebuffer();
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,read);
+      gl.framebufferTextureLayer(gl.READ_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,texture,0,0);
+      gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,draw);
+      gl.framebufferTextureLayer(gl.DRAW_FRAMEBUFFER,gl.COLOR_ATTACHMENT0,texture,1,0);
+      const blit=gl.checkFramebufferStatus(gl.READ_FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE&&
+        gl.checkFramebufferStatus(gl.DRAW_FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
+      gl.bindFramebuffer(gl.READ_FRAMEBUFFER,null);gl.bindFramebuffer(gl.DRAW_FRAMEBUFFER,null);
+      photoUpload={texture,tile,layers:[...layers],table,next:0,read,draw,blit};
     },
     get photoTextures(){return photoReady;},
     setQuality(value){
