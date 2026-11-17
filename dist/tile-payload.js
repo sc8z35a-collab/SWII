@@ -17,7 +17,7 @@ export async function prepareVisualTile(payload,ix,iz){
   return {
     ix,iz,x:tile.x,z:tile.z,
     heights:tile.heights.slice(),solids:tile.solids.slice(),decks:tile.decks.slice(),
-    platforms:tile.platforms.slice(),roads:tile.roads.slice(),
+    platforms:tile.platforms.slice(),blocks:tile.blocks.slice(),roads:tile.roads.slice(),
     batch:meshBatch(tile,terrainMesh(tile))
   };
 }

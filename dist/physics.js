@@ -1,5 +1,5 @@
 import {districtAt,limits,TILE_SIZE,toGlobal,waterLevel} from './geography.js';
-import {overlaps,platformHeight,sampleHeight,terrainWater} from './tiles.js';
+import {BLOCK_STRIDE,blockFootprint,overlaps,platformHeight,sampleHeight,terrainWater} from './tiles.js';
 import {cities} from './world.js';
 import {stepVehicle} from './driving.js';
 import {tunnelSupport} from './road-tunnels.js';
@@ -14,6 +14,11 @@ export const WALK_SPEED=9;
 export const RUN_SPEED=21;
 export const LOOK_SPEED=1.65;
 const GRAVITY=20;
+// The player's body for prop collisions: a 0.3 m radius, 1.75 m tall; anything up to 0.36 m above the
+// feet is a step. Swimming keeps the eyes about 0.4 m above the surface and moves at under half speed.
+export const BODY_RADIUS=.3,BODY_HEIGHT=1.75,STEP_UP=.36,SWIM_DEPTH=1.32,SWIM_FACTOR=.45;
+// Leaves give way: foliage only blocks when it hangs lower than this above the feet.
+const FOLIAGE_CLEARANCE=.9;
 export const cityById=new Map(cities.map(city=>[city.id,city]));
 export const landmarks=new Map(cities.map(city=>[city.id,city.spots.map(([id,name,hint,x,z])=>[id,name,hint,...toGlobal(city.id,x,z)])]));
 export const clamp=(n,a,b)=>Math.max(a,Math.min(n,b));
@@ -47,7 +52,8 @@ function collisionBins(tile,list,stride,pad=0){
 export function terrainSampler(cache,world){
   const indexes=new WeakMap();
   let lastTile;
-  function support(x,z,level,ignoreCar){
+  // swim: water carries a body on foot (the player) instead of stopping it. Vehicles and pursuers never swim.
+  function support(x,z,level,ignoreCar,swim=false){
     if(x<limits.west+1||x>limits.east-1||z<limits.north+1||z>limits.south-1)return null;
     const tile=lastTile&&x>=lastTile.x&&x<lastTile.x+TILE_SIZE&&z>=lastTile.z&&z<lastTile.z+TILE_SIZE?lastTile:cache.at(x,z);
     if(!tile)return null;
@@ -60,16 +66,32 @@ export function terrainSampler(cache,world){
     let index=indexes.get(tile);
     if(!index){
       index={solids:collisionBins(tile,tile.solids,6,.37),decks:collisionBins(tile,tile.decks,6),
-        platforms:collisionBins(tile,tile.platforms,8)};
+        platforms:collisionBins(tile,tile.platforms,8),
+        blocks:tile.blocks?collisionBins(tile,tile.blocks,BLOCK_STRIDE,BODY_RADIUS):null};
       indexes.set(tile,index);
     }
     const bin=cell(z-tile.z)*collisionCells+cell(x-tile.x);
     if(overlaps(tile.solids,x,z,.37,index.solids?index.solids[bin]??emptyOffsets:null))return null;
     const y=sampleHeight(tile,x,z);
     const deck=overlaps(tile.decks,x,z,0,index.decks?index.decks[bin]??emptyOffsets:null);
-    if(!deck&&terrainWater(tile,x,z,y))return null;
-    const ground=deck?Math.max(y,(waterLevel(x,z)??-.52)+.61):y;
-    return platformHeight(tile.platforms,x,z,ground,index.platforms?index.platforms[bin]??emptyOffsets:null);
+    const water=deck?null:terrainWater(tile,x,z,y);
+    if(water&&!swim)return null;
+    let ground=deck?Math.max(y,(waterLevel(x,z)??-.52)+.61):water?Math.max(y,water.level-SWIM_DEPTH):y;
+    ground=platformHeight(tile.platforms,x,z,ground,index.platforms?index.platforms[bin]??emptyOffsets:null);
+    // Props collide where they are drawn: low ones are steps, the ones overlapping the body stop it,
+    // and anything above the head lets it pass underneath.
+    const blocks=tile.blocks;
+    if(blocks?.length){
+      const feet=Number.isFinite(level)?Math.max(level,ground):ground;
+      const offsets=index.blocks?index.blocks[bin]??emptyOffsets:null,count=offsets?offsets.length:blocks.length/BLOCK_STRIDE;
+      for(let item=0;item<count;item++){
+        const i=offsets?offsets[item]:item*BLOCK_STRIDE,top=blocks[i+7];
+        if(blocks[i+6]>=feet+(blocks[i+8]===2?FOLIAGE_CLEARANCE:BODY_HEIGHT)||top<=ground)continue;
+        if(top<=feet+STEP_UP){if(blockFootprint(blocks,i,x,z,0))ground=top;}
+        else if(blockFootprint(blocks,i,x,z,BODY_RADIUS))return null;
+      }
+    }
+    return ground;
   }
   function terrainOccludes(a,b){
     const steps=Math.max(1,Math.ceil(Math.hypot(b[0]-a[0],b[2]-a[2])/1.4));
@@ -84,14 +106,22 @@ export function terrainSampler(cache,world){
     }
     return false;
   }
-  return {support,terrainOccludes};
+  // The water surface height at x, z, or null on land and under decks.
+  function water(x,z){
+    const tile=cache.at(x,z);
+    if(!tile||overlaps(tile.decks,x,z,0))return null;
+    return terrainWater(tile,x,z,sampleHeight(tile,x,z))?.level??null;
+  }
+  return {support,terrainOccludes,water};
 }
 export function stepMotion(player,input,ms,terrain){
   const dt=ms/1000,forward=input[1],side=input[2],yaw=input[3],run=input[4];
   if(player.vehicle){stepVehicle(player,input,dt,terrain);return;}
   if(player.train?.boardedAt)return;
-  const support=(x,z)=>player.station?stationSupport(player.station,x,z):terrain.support(x,z,player.y,player.clearWreck);
-  const magnitude=Math.max(1,Math.hypot(forward,side)),speed=(run?RUN_SPEED:WALK_SPEED)/magnitude;
+  const support=(x,z)=>player.station?stationSupport(player.station,x,z):terrain.support(x,z,player.y,player.clearWreck,true);
+  const surface=player.station?null:terrain.water?.(player.x,player.z)??null;
+  const swimming=surface!==null&&player.y<surface-.5;
+  const magnitude=Math.max(1,Math.hypot(forward,side)),speed=(run?RUN_SPEED:WALK_SPEED)/magnitude*(swimming?SWIM_FACTOR:1);
   const sine=Math.sin(yaw),cosine=Math.cos(yaw);
   const vx=(sine*forward+cosine*side)*speed,vz=(-cosine*forward+sine*side)*speed;
   const dx=vx-player.vx,dz=vz-player.vz,distance=Math.hypot(dx,dz);
@@ -101,7 +131,7 @@ export function stepMotion(player,input,ms,terrain){
   player.yaw=yaw;
   const ground=support(player.x,player.z);
   if(ground===null){player.vx=player.vz=0;return;}
-  const limit=Math.max(player.y,ground)+Math.max(.28,dt*RUN_SPEED*.8);
+  const limit=Math.max(player.y,ground)+Math.max(STEP_UP,dt*RUN_SPEED*.8);
   let currentY=ground;
   const x=player.x+player.vx*dt,z=player.z+player.vz*dt;
   const diagonal=player.vx&&player.vz?support(x,z):null;

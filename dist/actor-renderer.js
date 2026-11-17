@@ -39,7 +39,10 @@ void main(){
   mat3 RA,RB;vec3 TA,TB;
   boneTransform(int(aExtra.x+.5),P,RA,TA);
   boneTransform(int(aExtra.y+.5),P,RB,TB);
-  vec3 p=mix(RA*aPosition+TA,RB*aPosition+TB,aExtra.z);
+  // Style bit 19 marks the player's own body seen in first person: the head and hair fold into the neck
+  // so the camera, which sits where the eyes are, never looks out through them.
+  vec3 rest=((bits>>19)&1)!=0&&aPosition.y>1.47&&abs(aPosition.x)<.17?vec3(0.,1.47,0.):aPosition;
+  vec3 p=mix(RA*rest+TA,RB*rest+TB,aExtra.z);
   vec3 n=mix(RA*aNormal,RB*aNormal,aExtra.z);
   p.x*=build;n.x/=build;
   if((int(aStyle.w+.5)&64)!=0){
@@ -709,6 +712,8 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
       const lists=new Map();
       for(let i=0;i<people.length/16;i++){
         const x=people[i*16],y=people[i*16+1],z=people[i*16+2],scale=people[i*16+4];
+        // The headless first-person body casts no shadow; its full twin (shadowHumans) does.
+        if(shadow&&((Math.round(people[i*16+15])>>19)&1))continue;
         if(!visible(planes,x,y+.9*scale,z,1.2*scale))continue;
         const dx=x-eye[0],dz=z-eye[2],variant=variantOf(people,i);
         const near=!shadow&&dx*dx+dz*dz<(26*scale)**2*(mobile?.6:1);
