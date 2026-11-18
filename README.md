@@ -1,6 +1,6 @@
 # ATLANTIS v19 — Cloudflare Workers 版
 
-6つの都市が地続きになった **8 km × 6 km** の3Dサバイバルゲームです。街並みは約8.2万棟の建物からなり、200 m四方の1,200区画を現在地の周りから読み込みます。
+6つの都市が地続きになった **8 km × 6 km** の3Dサバイバルゲームです。各都市の周辺は海に囲まれ、200 m四方の1,200区画を現在地の周りから読み込みます。
 
 ## 遊び方
 
@@ -97,14 +97,13 @@ OPENAI_API_KEY=... python3 .claude/skills/gpt-image-textures/generate.py
 
 ```sh
 npm ci
-npm run build
 npx wrangler login
 npm run deploy
 ```
 
 3. Wranglerが表示する `https://…workers.dev` を開きます。画面右上に **Cloudflare 接続済み** と表示されれば、サーバー処理が有効です。初めてWorkersを使うアカウントでは、案内に沿って `workers.dev` サブドメインを設定します。
 
-`npm run build` はワールド区画、衝突・遮蔽データ、素材を生成します。配布用ZIPにはこれらの生成済みデータが入っています。
+Wranglerは公開前に `npm run build` を実行し、ワールド区画、衝突・遮蔽データ、素材を生成します。Workers Buildsで自動公開する場合は、本番ブランチを `main`、デプロイコマンドを `npx wrangler deploy` に設定します。配布用ZIPにはこれらの生成済みデータが入っています。
 
 Worker名は `wrangler.toml` の `name` で変更できます。すでに同名の別プロジェクトがある場合は、初回デプロイ前に変更してください。SQLite Durable Objectは初回デプロイ時のマイグレーションで用意されます。データベースやストレージの個別作成、ゲーム用APIキーの発行は不要です。
 
@@ -129,7 +128,6 @@ Worker名は `wrangler.toml` の `name` で変更できます。すでに同名�
 
 ```sh
 npm ci
-npm run build
 npm run dev:cloud
 ```
 

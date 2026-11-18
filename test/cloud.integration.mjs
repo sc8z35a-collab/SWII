@@ -69,13 +69,13 @@ function channel(base,cookie){
   return {ws,next,send(value){ws.send(typeof value==='string'?value:JSON.stringify(value));}};
 }
 
-test('Workers runtime owns movement, book collection, shooting, parked cars and save recovery',{timeout:45000},async ()=>{
+test('Workers runtime owns movement, book collection, shooting, parked cars and save recovery',{timeout:100000},async ()=>{
   const dir=await mkdtemp(join(tmpdir(),'atlantis-worker-test-'));
   let worker,game,reopen;
   try{
     await mkdir(join(dir,'state'));
     await node(process.execPath,[join(root,'node_modules','wrangler','bin','wrangler.js'),'deploy','--dry-run','--outdir',dir],{
-      cwd:root,env:{...process.env,WRANGLER_SEND_METRICS:'false'},timeout:18000
+      cwd:root,env:{...process.env,WRANGLER_SEND_METRICS:'false'},timeout:60000
     });
     await writeFile(join(dir,'config.capnp'),`using Workerd = import "/workerd/workerd.capnp";
 const config :Workerd.Config = (
@@ -100,6 +100,10 @@ const config :Workerd.Config = (
     let base=worker.base;
     const health=await (await fetch(base+'/api/health')).json();
     assert.equal(health.world,WORLD_VERSION);
+    const stats=await (await fetch(base+'/world/'+WORLD_VERSION+'/stats.json')).json();
+    assert.equal(stats.version,WORLD_VERSION);
+    assert.equal(stats.buildings,0);
+    assert.equal(stats.shops,0);
     const start=initial(),path=tilePath(...toTile(start.x,start.z));
     assert.equal((await fetch(new URL(path,base))).status,200);
     assert.equal((await fetch(base+'/api/session',{method:'POST',headers:{Origin:'https://elsewhere.invalid'}})).status,403);

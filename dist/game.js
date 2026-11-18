@@ -33,6 +33,7 @@ const hardwareScene=$('scene');
 let scene=hardwareScene,rendererGeneration=0;
 const stage=$('stage'), panel=$('panel'), panelBody=$('panelBody');
 const look=$('look'),joystick=$('joystick'),stick=$('stick'),runButton=$('runBtn');
+const sessionSettings={};
 let save=readProgress();
 try{save=readProgress(localStorage);}catch{}
 const saveKey='atlantis.survival.v2';
@@ -86,13 +87,14 @@ function applyProgress(next){
   if(!save.mouseLock&&document.pointerLockElement)document.exitPointerLock?.();
   if(panelName==='settings')syncSettings();
 }
-async function saveProgress(change){
+async function setPreference(key,value){
   let next,locks=null;
   try{locks=navigator.locks;}catch{}
-  try{next=await writeProgress(localStorage,change,locks);}catch{}
-  if(!next)return false;
-  applyProgress(next);
-  return true;
+  try{next=await writeProgress(localStorage,()=>({[key]:value}),locks);}catch{}
+  if(next)delete sessionSettings[key];
+  else sessionSettings[key]=value;
+  applyProgress({...(next??save),...sessionSettings});
+  return Boolean(next);
 }
 // Messages wait their turn instead of replacing one another; repeats are dropped. A running count
 // (replace) updates the message on screen at once.
@@ -1051,7 +1053,8 @@ function openPanel(){
     if(row.range)select.oninput=()=>{$('value-'+row.key).textContent=viewLabel(Number(select.value));};
     select.onchange=async()=>{
       const value=row.range?Number(select.value):row.options[Number(select.value)]?.[0];
-      if(value===undefined||!await saveProgress(()=>({[row.key]:value}))){syncSettings();toast(row.title+'を保存できませんでした');}
+      if(value===undefined)return syncSettings();
+      if(!await setPreference(row.key,value))toast(row.title+'はこのタブにのみ適用されます');
     };
   }
   $('fullBtn').onclick=toggleFullscreen;
@@ -1132,7 +1135,7 @@ window.addEventListener('online',()=>{if(journey.mode==='waiting')void journey.s
 window.addEventListener('storage',e=>{
   if(e.key!==progressKey||!e.newValue)return;
   try{
-    applyProgress(readProgress(localStorage));
+    applyProgress({...readProgress(localStorage),...sessionSettings});
   }catch{}
 });
 window.addEventListener('blur',releaseControls);
@@ -1202,7 +1205,7 @@ window.addEventListener('keydown',e=>{
     e.preventDefault();
     if(save.volume)unmutedVolume=save.volume;
     const volume=save.volume?0:unmutedVolume;
-    void saveProgress(()=>({volume})).then(saved=>{if(saved)toast(volume?'音を戻しました':'消音しました');});
+    void setPreference('volume',volume).then(()=>toast(volume?'音を戻しました':'消音しました'));
     return;
   }
   if(!active||travelling||panel.open)return;
