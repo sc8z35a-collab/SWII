@@ -1,6 +1,6 @@
 import {airport} from './transport-layout.js';
 export const limits={west:-4000,east:4000,north:-3000,south:3000};
-export const WORLD_VERSION='atlas-15';
+export const WORLD_VERSION='atlas-16';
 export const TILE_SIZE=200;
 export const GRID_STEP=10;
 export const TILE_COLS=(limits.east-limits.west)/TILE_SIZE;
@@ -16,6 +16,7 @@ export const districts={
   sydney:{x:2300,z:1380,turn:-1,ground:'7d8e72',road:'646869'},
   rio:{x:-2380,z:1290,turn:-1,ground:'77956e',road:'756e62'}
 };
+const districtEntries=Object.entries(districts),districtCenters=Object.values(districts);
 export const toGlobal=(id,x,z)=>{
   const d=districts[id];return [d.x+x*d.turn,d.z+z*d.turn];
 };
@@ -24,7 +25,7 @@ export const toLocal=(id,x,z)=>{
 };
 export function districtAt(x,z){
   let nearest='tokyo',best=Infinity;
-  for(const [id,d] of Object.entries(districts)){
+  for(const [id,d] of districtEntries){
     const ax=x-d.x,az=z-d.z;
     const edge=82*Math.sin(x*.006+id.length)*Math.sin(z*.005-id.length*.46);
     const distance=Math.hypot(ax,az)+edge;
@@ -36,7 +37,8 @@ const clamp=(x,lo,hi)=>Math.max(lo,Math.min(hi,x));
 const smooth=(a,b,x)=>{const t=clamp((x-a)/(b-a),0,1);return t*t*(3-2*t);};
 const mix=(a,b,t)=>a+(b-a)*t;
 const softMax=(a,b,k)=>Math.max(a,b)+Math.max(0,k-Math.abs(a-b))**2/(4*k);
-const waterLevels={seine:-.47,hudson:-.52,harbor:-.52,atlantic:-.50};
+export const OCEAN={bank:-1,level:-.52,color:'43869b',id:'ocean'};
+const waterLevels={ocean:OCEAN.level,seine:-.47,hudson:-.52,harbor:-.52,atlantic:-.50};
 export const highestWaterLevel=Math.max(...Object.values(waterLevels));
 function hash(x,z){
   let n=Math.imul(x,374761393)+Math.imul(z,668265263);
@@ -50,7 +52,15 @@ function noise(x,z){
 export function rioShore(z){
   return 67+(26*Math.sin((z+5)/91)+6*Math.sin(z*.042))*smooth(39,164,Math.abs(z));
 }
-function waterShape(x,z){
+function coastDistance(x,z){
+  let nearestSquared=Infinity;
+  for(const {x:cx,z:cz} of districtCenters)
+    nearestSquared=Math.min(nearestSquared,(x-cx)**2+(z-cz)**2);
+  const airportEdge=Math.max(airport.west-x,x-airport.east,airport.north-z,z-airport.south);
+  return Math.min(Math.sqrt(nearestSquared)-625,airportEdge-115);
+}
+function waterShape(x,z,edge=coastDistance(x,z)){
+  if(edge>=0)return OCEAN;
   const [px,pz]=toLocal('paris',x,z);
   if(px<335&&Math.abs(pz)<160){
     const center=5+(19*Math.sin(px/86)+44*Math.sin(px/230))*smooth(20,210,Math.abs(px));
@@ -108,6 +118,8 @@ function coreHeight(id,x,z){
   return 4+hill(x,z,-79,39,21,126,103)+hill(x,z,77,-57,16,112,145)+3.1*Math.sin(x*.035-z*.023)-hill(x,z,1,55,4,24,116);
 }
 export function rawHeight(x,z){
+  const coast=coastDistance(x,z);
+  if(coast>=60)return OCEAN.level-8;
   const id=districtAt(x,z),[dx,dz]=toLocal(id,x,z);
   const distance=Math.hypot(dx,dz);
   let detail=coreHeight(id,dx,dz);
@@ -117,8 +129,8 @@ export function rawHeight(x,z){
   }
   const broad=noise(x/870+5.7,z/780-2.6)*37+noise(x/330-3.4,z/300+9.2)*21+noise(x/131,z/114)*9-20;
   let y=mix(broad,detail,1-smooth(155,635,distance));
-  const water=waterShape(x,z);
-  if(water){
+  const water=waterShape(x,z,coast);
+  if(water&&water!==OCEAN){
     const b=water.bank,coast=water.id==='atlantic';
     if(b<0)y=water.level-.17-smooth(0,44,-b)*5.5;
     else if(b<(coast?26:20)){
@@ -127,11 +139,15 @@ export function rawHeight(x,z){
     }
   }
   const edge=Math.max(airport.west-x,x-airport.east,airport.north-z,z-airport.south,0);
-  return edge<104?mix(airport.elevation,y,smooth(0,104,edge)):y;
+  const ground=edge<104?mix(airport.elevation,y,smooth(0,104,edge)):y;
+  if(coast<-90)return ground;
+  const shore=coast>=0?OCEAN.level-8*smooth(0,60,coast):OCEAN.level+Math.max(.08,-coast*.13);
+  return coast>=0?shore:mix(shore,ground,smooth(-32,-90,coast));
 }
 export function surfaceAt(x,z,height){
-  const district=districtAt(x,z),water=waterShape(x,z);
+  const water=waterShape(x,z);
   if(water&&water.bank<4&&height<water.level+.025)return {color:water.color,water};
+  const district=districtAt(x,z);
   const t=noise(x*.026,z*.026),jitter=noise(x*.008+4,z*.008);
   const sand=smooth(1380,350,Math.hypot(x-districts.cairo.x,z-districts.cairo.z)+(jitter-.5)*230);
   const grass=[109+t*24,131+t*21,104+t*19],sandTone=[190+t*17,156+t*19,113+t*20];
@@ -160,15 +176,7 @@ export function triangleLiquid(a,b,c,corners){
 }
 export function waterLevel(x,z){return waterShape(x,z)?.level;}
 
-const seaDirections=Array.from({length:12},(_,i)=>[Math.cos(i*Math.PI/6),Math.sin(i*Math.PI/6)]);
-export function seascape(x,z){
-  let u=0,v=0,weight=0;
-  for(const [a,b] of seaDirections)for(const [distance,strength] of [[95,.5],[215,.38],[405,.25]]){
-    const water=waterShape(x+a*distance,z+b*distance);
-    if(!water||water.id==='seine')continue;
-    const open=smooth(3,27,-water.bank)*strength;
-    u+=a*open;v+=b*open;weight+=open;
-  }
-  const magnitude=Math.hypot(u,v);
-  return {ocean:smooth(.28,2.0,weight),oceanBearing:magnitude>.001?[u/magnitude,v/magnitude]:[-1,0]};
+// The horizon is ocean in every direction, including between the islands.
+export function seascape(){
+  return {ocean:1,oceanBearing:[0,0]};
 }

@@ -12,14 +12,14 @@ export function readProgress(storage){
   const photos=Array.isArray(saved?.photos)?saved.photos.filter(p=>
     typeof p?.image==='string'&&p.image.startsWith(PHOTO_PREFIX)).slice(0,MAX_PHOTOS):[];
   return {city:cities.some(city=>city.id===saved?.city)?saved.city:'tokyo',stamps,photos,
-    quality:['auto','high','low'].includes(saved?.quality)?saved.quality:'auto',
     sensitivity:[.65,1,1.5].includes(saved?.sensitivity)?saved.sensitivity:1,
     ...readSettings(saved)};
 }
 // Display, camera and sound preferences, each falling back to its default when missing or invalid.
 // viewDistance 0 is automatic; 1-10 load from about 200 m to 740 m around the player.
+export const resolutionLines={fhd:1080,'1.5k':1200,'2k':1440,'4k':2160};
 export const settingDefaults={fov:61,motionBlur:true,shake:true,invertY:false,showFps:false,volume:.7,mouseLock:false,
-  resolution:'auto',fps:60,reflections:true,viewDistance:0,hdr:true};
+  resolution:'fhd',fps:60,shadows:true,reflections:true,viewDistance:0,hdr:true};
 function readSettings(saved){
   const pick=(key,valid)=>valid(saved?.[key])?saved[key]:settingDefaults[key];
   const flag=value=>typeof value==='boolean';
@@ -31,9 +31,10 @@ function readSettings(saved){
     showFps:pick('showFps',flag),
     volume:pick('volume',v=>[0,.35,.7,1].includes(v)),
     mouseLock:pick('mouseLock',flag),
-    resolution:pick('resolution',v=>['auto','fhd','2k','4k'].includes(v)),
+    resolution:pick('resolution',v=>Object.hasOwn(resolutionLines,v)),
     // fps 0 is unlimited: every frame the display offers.
-    fps:pick('fps',v=>[30,60,120,0].includes(v)),
+    fps:pick('fps',v=>[30,60,90,120,0].includes(v)),
+    shadows:pick('shadows',flag),
     hdr:pick('hdr',flag),
     reflections:pick('reflections',flag),
     viewDistance:pick('viewDistance',v=>Number.isInteger(v)&&v>=0&&v<=10)

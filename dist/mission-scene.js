@@ -7,6 +7,7 @@ import {missionData} from './mission-data.js';
 import {withDeadline} from './network.js';
 import {WORLD_VERSION} from './geography.js';
 import {RD2} from './ballistics.js';
+import {enemyInkColor,weaponById,weapons} from './weapons.js';
 
 const {x,z,half,engines}=launchSite;
 const floor=missionData.padFloor;
@@ -121,6 +122,11 @@ function drawEnemy(meshes,effects,actor,clock){
   const {scale,walked,speedNow,alerted}=actor,down=collapse(actor);
   if(down>.4)stunMarks(effects,actor,clock,.75*scale);
   const tracking=actor.mode==='track';
+  if(actor.weapon==='h1'&&down<.5){
+    const frame=meshFrame(meshes,actor);
+    frame.part('chamfer',.30,1.16,.30,.15,.17,.46,'343c40',HEAT_METAL);
+    frame.part('box',.30,1.24,.34,.11,.065,.29,enemyInkColor,7);
+  }
   if(meshes.detailed){
     const stride=alerted?2.55:tracking?1.7:1.16;
     (meshes.humans??=[]);
@@ -196,8 +202,26 @@ function drawAmmo(meshes,effects,drop,clock,low){
 }
 function drawBullet(effects,bullet){
   const speed=Math.hypot(bullet.vx,bullet.vy,bullet.vz)||1,d=[bullet.vx/speed,bullet.vy/speed,bullet.vz/speed];
-  const head=[bullet.x,bullet.y,bullet.z],length=Math.min(7.5,Math.max(.4,(bullet.age??0)*.001*speed));
-  streak(effects,add(head,d,-length),head,.05,.95,IGNITION,'ffd9a0');
+  const ink=Boolean(weaponById(bullet.weapon)?.inkCost);
+  const head=[bullet.x,bullet.y,bullet.z],length=Math.min(ink?2.1:7.5,Math.max(.4,(bullet.age??0)*.001*speed));
+  const shade=bullet.enemy?enemyInkColor:weaponById(bullet.weapon)?.color??'ffd9a0';
+  streak(effects,add(head,d,-length),head,ink?.10:.05,.95,IGNITION,shade);
+
+}
+function drawInk(meshes,ink,groundAt){
+  const tint=rgb(ink.enemy?enemyInkColor:weapons[ink.weapon].color);
+  const floor=(x,z)=>(groundAt?.(x,z)??ink.y)+.24;
+  const center=[ink.x,floor(ink.x,ink.z),ink.z];
+  const points=Array.from({length:12},(_,i)=>{
+    const angle=i*Math.PI/6,spread=ink.radius*(.64+noise(ink.id*3+i)*.37);
+    const x=ink.x+Math.cos(angle)*spread,z=ink.z+Math.sin(angle)*spread;
+    return [x,floor(x,z),z];
+  });
+  const data=meshes.tri??=[];
+  for(let i=0;i<points.length;i++){
+    const u=vector(center,points[(i+1)%points.length]),v=vector(center,points[i]);
+    data.push(...center,...u,...normalize(vectorCross(u,v)),...v,...tint,7);
+  }
 }
 function impactEffects(effects,impact,low){
   const t=impact.age/1000,p=[impact.x,impact.y,impact.z];
@@ -209,14 +233,18 @@ function impactEffects(effects,impact,low){
       .12+t*.9,impact.flesh?'5d2f2a':'b9b1a0',(1-t/.7)*.5,DUST);
   }
 }
-function copyAssembly(meshes,lift){
-  if(!assembly)return;
-  for(const [kind,data] of Object.entries(assembly)){
+// The foundation has two detail levels. The tower and base only translate vertically.
+const foundations=new Map();
+function appendLifted(meshes,parts,lift,materialOffset){
+  for(const [kind,data] of Object.entries(parts)){
     if(!data.length)continue;
-    const out=meshes[kind]??=[];
-    let n=out.length;
-    out.length=n+data.length;
-    for(let i=0;i<data.length;i++)out[n++]=data[i]+(i%16===1?lift:i%16===15?LIFT_MATERIAL_OFFSET:0);
+    const out=meshes[kind]??=[],start=out.length;
+    out.length=start+data.length;
+    for(let i=0;i<data.length;i++)out[start+i]=data[i];
+    for(let i=start;i<out.length;i+=16){
+      out[i+1]+=lift;
+      out[i+15]+=materialOffset;
+    }
   }
 }
 function makeFoundation(meshes,lift,close){
@@ -410,8 +438,13 @@ export function drawMission(meshes,mission,eye,now,low=false,groundAt,short=fals
   const liftDistance=Math.hypot(gap,eye[1]-floor-lift);
   if(gap<1090){
     if(liftDistance<1210){
-      copyAssembly(meshes,lift);
-      makeFoundation(meshes,lift,liftDistance<(low?177:325));
+      if(assembly)appendLifted(meshes,assembly,lift,LIFT_MATERIAL_OFFSET);
+      const close=liftDistance<(low?177:325);
+      if(!foundations.has(close)){
+        const parts={};
+        makeFoundation(parts,0,close);foundations.set(close,parts);
+      }
+      appendLifted(meshes,foundations.get(close),lift,0);
     }
     if(lift>.18&&gap<430)drawShaft(meshes,lift,gap<220);
     const spool=mission.phase==='evacuate'?smooth((mission.elapsed-EVACUATION_MS+3600)/3600):0;
@@ -428,6 +461,7 @@ export function drawMission(meshes,mission,eye,now,low=false,groundAt,short=fals
   for(const actor of mission.enemies??[])if(Number.isFinite(actor.y)&&delta(eye,[actor.x,actor.y,actor.z])<(short?60:230))
     drawEnemy(meshes,effects,actor,now);
   for(const drop of mission.drops??[])if(delta(eye,[drop.x,drop.y,drop.z])<(short?52:120))drawAmmo(meshes,effects,drop,now,low);
+  for(const ink of mission.paint??[])if(delta(eye,[ink.x,ink.y,ink.z])<90)drawInk(meshes,ink,groundAt);
   for(const bullet of mission.bullets??[])drawBullet(effects,bullet);
   for(const impact of mission.impacts??[])if(delta(eye,[impact.x,impact.y,impact.z])<160)impactEffects(effects,impact,low);
   const cars=new Map((mission.cars??[]).map(car=>[car.id,car]));
@@ -513,7 +547,7 @@ export function updateVehicleModel(meshes,player,pitch,input={},now=performance.
 // Strokes of each letter in a unit cell: center and size.
 const letters={R:[[.1,.5,.2,1],[.5,.93,.6,.14],[.5,.5,.6,.14],[.85,.72,.18,.5],[.74,.2,.2,.42]],
   D:[[.1,.5,.2,1],[.5,.93,.6,.14],[.5,.07,.6,.14],[.85,.5,.18,.74]],I:[[.5,.5,.2,1],[.5,.93,.7,.14],[.5,.07,.7,.14]]};
-export function drawHeldGun(meshes,eye,yaw,pitch,{kick=0,reload=0,flash=0,sway=[0,0],lowered=0,muzzleHeat=0,retract=0}={}){
+export function drawHeldGun(meshes,eye,yaw,pitch,{weapon,kick=0,reload=0,flash=0,sway=[0,0],lowered=0,muzzleHeat=0,retract=0}={}){
   const view=meshFrame({},{x:0,y:0,z:0,yaw,pitch});
   const swing=Math.sin(reload*Math.PI),drop=lowered+swing*.11+retract*.03;
   // Close to a wall the pistol is drawn back and raised, so that it does not pass through the surface.
@@ -524,6 +558,23 @@ export function drawHeldGun(meshes,eye,yaw,pitch,{kick=0,reload=0,flash=0,sway=[
   const {right,up,forward,back,part:m,point}=gun;
   const metal=HEAT_METAL,steel='3b4046',dark='22262a',grip='2b2a28';
   const lengthwise=[right,forward,up];
+  const ink=weaponById(weapon)?.inkCost;
+  if(ink){
+    const tint=weapons[weapon].color,long=weapon==='sr1t',shield=weapon==='shielder';
+    const tip=long?.252:shield?.204:.169;
+    m('chamfer',0,.006,.07,shield?.125:.077,.061,.25,steel,metal);
+    m('box',0,.039,.04,.054,.013,.19,tint,7);
+    m('tube',0,.015,tip-.025,shield?.061:.043,.08,shield?.061:.043,dark,metal,lengthwise);
+    m('tube',0,.015,tip+.017,.034,.009,.034,tint,7,lengthwise);
+    m('chamfer',0,-.075,-.040,.050,.112,.055,grip,42);
+    m('chamfer',0,-.093,.080,.069,.052,.156,tint,metal);
+    if(long)m('chamfer',0,.073,.02,.045,.055,.086,'222c31',metal);
+    if(shield)for(const side of [-1,1])m('chamfer',side*.065,.01,.09,.026,.082,.083,tint,7);
+    if(flash>0)m('ball',0,.015,tip+.07,.065*flash,.065*flash,.18*flash,tint,IGNITION);
+    m('chamfer',.004,-.074,-.065,.073,.092,.066,'1d2022',LEATHER);
+    beam(meshes,point(.012,-.1,-.1),point(.07,-.22,-.36),.085,.078,'2f3a3c',41);
+    return {muzzle:point(0,.015,tip+.02)};
+  }
   // Slide and frame.
   m('chamfer',0,.012,.03,.071,.034,.215,steel,metal);
   m('box',0,.031,.03,.058,.004,.2,dark,metal);

@@ -7,6 +7,7 @@ import {missionData} from '../dist/mission-data.js';
 import {createVisibility} from '../dist/visibility.js';
 import {createPursuit,enemyTypes,playerVisibility} from '../dist/pursuit.js';
 import {RD2,stepBullet} from '../dist/ballistics.js';
+import {INK_CAPACITY,weapons,findLock,lockWindow} from '../dist/weapons.js';
 import {toTile} from '../dist/geography.js';
 import {decodeTile,tilePath} from '../dist/tiles.js';
 import {simulate,terrainSampler} from '../dist/physics.js';
@@ -204,4 +205,78 @@ test('RD II fires three rounds per pull from a 120 round magazine, reloads from 
   while(round.x<100)stepBullet(round,.01,()=>true);
   const speed=Math.hypot(round.vx,round.vy,round.vz);
   assert.ok(speed>300&&speed<330&&round.y<-.3&&round.y>-.6);
+});
+
+function distantActors(){
+  return Array.from({length:13},(_,i)=>({x:3100+i*50,z:2700,y:null,yaw:0,alerted:false,walked:0,waypoint:0,
+    lastSeen:null,patrol:[[3100+i*50,2700]],stun:0,hits:0}));
+}
+
+test('SR1T locks inside the visible rectangle, curves toward a pursuer and deals 0.9 damage',t=>{
+  t.mock.method(Math,'random',()=>.5);
+  const player=playerAt(100,100,0),actors=distantActors();
+  Object.assign(actors[2],{x:102.5,y:0,z:80,patrol:[[102.5,80]]});
+  const ground={support:()=>0,terrainOccludes:()=>false};
+  const state={phase:'books',pursuit:{v:2,actors}};
+  const run=createMission(clear,state);
+  assert.equal(run.equip(player,'sr1t'),true);
+  const eye=[100,1.75,100],enemies=run.view().enemies;
+  assert.equal(findLock(eye,0,0,lockWindow(5),enemies,()=>true)?.id,enemies[2].id);
+  assert.equal(findLock(eye,0,0,lockWindow(0),enemies,()=>true),null);
+  assert.equal(findLock(eye,0,0,lockWindow(5),enemies,()=>false),null);
+  assert.equal(run.shoot(player,0,0,ground),1);
+  advance(run,player,ground,499);
+  assert.equal(run.view().gun.lastHit?.hits,.9);
+  assert.equal(run.shoot(player,0,0,ground),0);
+  advance(run,player,ground,1);
+  for(let i=0;i<4;i++){
+    assert.equal(run.shoot(player,0,.6,ground),1);
+    advance(run,player,ground,500);
+  }
+  assert.equal(run.view().gun.mag,0);
+  assert.equal(run.view().gun.ink,INK_CAPACITY-5*8);
+  assert.ok(run.view().gun.reloading>0);
+  advance(run,player,ground,weapons.sr1t.reloadMs);
+  assert.equal(run.view().gun.mag,5);
+  assert.equal(createMission(clear,run.save()).view().gun.id,'sr1t');
+});
+
+test('H1 fires single rounds every 200 ms, uses 3.0 ink and paints a wider surface',()=>{
+  const player=playerAt(100,100,0),ground={support:()=>0,terrainOccludes:(_a,b)=>b[1]<0};
+  const run=createMission(clear,{phase:'books',pursuit:{v:2,actors:distantActors()}});
+  assert.equal(run.equip(player,'h1'),true);
+  assert.equal(run.shoot(player,0,-.42,ground),1);
+  advance(run,player,ground,199);
+  assert.equal(run.shoot(player,0,-.42,ground),0);
+  assert.ok(run.view().paint[0].radius>2*weapons.shielder.paint);
+  advance(run,player,ground,1);
+  assert.equal(run.shoot(player,0,-.42,ground),1);
+  assert.equal(run.view().gun.ink,INK_CAPACITY-60);
+});
+
+test('H1 pursuers fire and a selected T1 shield reduces both their shots and missiles to 80%',t=>{
+  t.mock.method(Math,'random',()=>.5);
+  const ground={support:()=>0,terrainOccludes:()=>false};
+  for(const [weapon,expected] of [['rd2',3.75],['shielder',3.8]]){
+    const player=playerAt(100,100,0),actors=distantActors();
+    Object.assign(actors[0],{x:100,y:0,z:94,alerted:true,lastSeen:{x:100,y:0,z:100},patrol:[[100,94]]});
+    const run=createMission(clear,{phase:'books',weapon,pursuit:{v:2,actors}});
+    advance(run,player,ground,30);
+    const [bullet]=run.view().bullets;
+    assert.equal(bullet.weapon,'h1');assert.equal(bullet.enemy,true);
+    advance(run,player,ground,105);
+    assert.equal(run.view().hp,expected);
+  }
+  const player=playerAt(100,100,0);
+  const run=createMission(clear,{phase:'survival',weapon:'shielder',missiles:[{
+    id:1,x:100,y:.97,z:102,direction:[0,0,-1],age:3000,track:[]
+  }]});
+  assert.equal(run.shoot(player,0,0,ground),1);
+  assert.equal(run.view().gun.ink,INK_CAPACITY-40);
+  advance(run,player,ground,30);
+  assert.equal(run.view().hp,2.4);
+  advance(run,player,ground,869);
+  assert.equal(run.shoot(player,0,0,ground),0);
+  advance(run,player,ground,1);
+  assert.equal(run.shoot(player,0,0,ground),1);
 });

@@ -3,7 +3,7 @@ import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
 import {gunzipSync} from 'node:zlib';
 import {cities,build,TOKYO_TOWER_SCALE} from '../dist/world.js';
-import {GRID_STEP,TILE_SIZE,limits,TILE_COLS,TILE_ROWS,WORLD_VERSION,hasTile,liquidAt,tileOrigin,toGlobal,toTile,waterLevel} from '../dist/geography.js';
+import {GRID_STEP,TILE_SIZE,limits,TILE_COLS,TILE_ROWS,WORLD_VERSION,OCEAN,hasTile,liquidAt,tileOrigin,toGlobal,toTile,waterLevel} from '../dist/geography.js';
 import {BLOCK_STRIDE,blockFootprint,decodeTile,meshKinds,overlaps,platformHeight,sampleHeight,terrainWater,tilesAround} from '../dist/tiles.js';
 import {BODY_HEIGHT,BODY_RADIUS,RUN_SPEED,STEP_UP,SWIM_DEPTH,SWIM_FACTOR,WALK_SPEED,discoverable,frameInputs,idleDrive,keepCameraOutOfWalls,landmarks,readInputs,simulate,spawn,stepMotion,terrainSampler} from '../dist/physics.js';
 import {createMission} from '../dist/mission.js';
@@ -14,12 +14,9 @@ import {prepareVisualTile} from '../dist/tile-payload.js';
 import {frustumPlanes,inFrustum} from '../dist/mesh-batches.js';
 import {cameraProjection} from '../dist/engine.js';
 import {terrainMesh} from '../dist/terrain-mesh.js';
-import {SIGNAL_GREEN,SIGNAL_RED,STREET_LAMP,signalAt} from '../dist/street-lights.js';
+import {SIGNAL_GREEN,SIGNAL_RED,signalAt} from '../dist/street-lights.js';
 import {recordFixtures} from '../tools/fixture-footprints.mjs';
 import {buildingSite} from '../tools/building-sites.mjs';
-import {apartmentPlans,facilityPlans} from '../tools/neighborhood-plans.mjs';
-import {facadeAppearance} from '../dist/facade-look.js';
-import {APARTMENT_GLASS,ROOM_MATERIAL_OFFSET} from '../dist/architecture-materials.js';
 
 const file=new URL('../dist/world/'+WORLD_VERSION+'/',import.meta.url);
 const cache=new Map();
@@ -98,11 +95,11 @@ test('the visible dry bank of the Seine is walkable and its water blocks movemen
   assert.ok(drawnWater(x,wet)>wetHeight);
 });
 
-test('world is 8 km by 6 km with dense, streamable, contiguous data',()=>{
+test('world is 8 km by 6 km with streamable islands, contiguous shores and two-triangle sea tiles',()=>{
   const stats=JSON.parse(readFileSync(new URL('stats.json',file),'utf8'));
   assert.equal(stats.width,8000);assert.equal(stats.depth,6000);
-  assert.equal(stats.tiles,TILE_COLS*TILE_ROWS);assert.ok(stats.buildings>65_000);
-  assert.ok(stats.roads>5000);
+  assert.equal(stats.tiles,TILE_COLS*TILE_ROWS);assert.equal(stats.buildings,0);assert.equal(stats.shops,0);
+  assert.ok(stats.roads>1000);
   for(const [i,j] of [[0,0],[20,15],[38,28]]){
     const a=tile(i,j,true),b=tile(i+1,j,true);
     const [x,z]=tileOrigin(i+1,j);
@@ -116,15 +113,13 @@ test('world is 8 km by 6 km with dense, streamable, contiguous data',()=>{
   const [coast,street,hill]=[[53,38],[0,77],[-65,48]].map(p=>height(...toGlobal('rio',...p)));
   assert.ok(street-coast>9&&street-coast<23);
   assert.ok(hill-street>11);
-  const rio=toGlobal('rio',0,0),lots=new Set();
-  for(const [ix,iz] of tilesAround(...rio,178)){
-    const solids=tile(ix,iz).solids;
-    for(let i=0;i<solids.length;i+=6){
-      const [x,z,w,d]=solids.subarray(i,i+4);
-      if(w>=2.2&&d>=2.2&&Math.hypot(x-rio[0],z-rio[1])<178)lots.add(x+','+z);
-    }
-  }
-  assert.ok(lots.size>=100);
+  const ocean=tile(0,0,true),mesh=terrainMesh(ocean);
+  assert.equal(mesh.length,32);
+  assert.deepEqual([mesh[15],mesh[31]],[3,3]);
+  assert.ok(Math.abs(mesh[1]-OCEAN.level)<1e-6);
+  assert.equal(terrain.water(ocean.x+100,ocean.z+100),OCEAN.level);
+  assert.equal(terrain.support(ocean.x+100,ocean.z+100),null);
+  assert.ok(meshKinds.every(kind=>ocean[kind].length===0));
   assert.equal(terrain.support(limits.east+1,0),null);
   assert.ok(tilesAround(limits.east,limits.south,250).every(coords=>hasTile(...coords)));
 });
@@ -175,40 +170,16 @@ test('all spawns, landmarks, and seven arterial links are reachable',()=>{
   }
 });
 
-test('the skyline contains distinct tall forms and every lobby has a walkable entrance and solid walls',()=>{
-  const stats=JSON.parse(readFileSync(new URL('stats.json',file),'utf8'));
+test('the baked skyline and districts have zero commercial or residential geometry',()=>{
   const {towers,skyline}=JSON.parse(readFileSync(new URL('architecture.json',file),'utf8'));
-  assert.ok(stats.buildingStyles>=60);
-  assert.ok(stats.heightBands.length>=40);
-  assert.ok(stats.heightBands.at(-1)>=400);
-  assert.equal(towers.length,stats.lobbies);
-  // Twenty-eight original towers, and ten further forms that each stand twice.
-  assert.equal(new Set(towers.map(tower=>tower.style)).size,38);
-  assert.equal(stats.addedTowers,20);assert.equal(towers.length,48);
-  assert.equal(stats.addedStreetStyles,60);assert.equal(stats.streetStyles,104);
-  assert.ok(stats.appearanceCombinations>5_000_000&&stats.buildingCombinations>100_000_000);
-  assert.equal(stats.damageKinds,16);assert.ok(stats.damageRecipes>5000);
-  assert.equal(new Set(towers.map(tower=>tower.city)).size,cities.length);
-  assert.ok(towers.filter(tower=>tower.height>=300).length>=5);
-  assert.ok(skyline.taper.length>16&&skyline.tube.length>16&&skyline.box.length>16);
-  for(const tower of towers){
-    const {approach,hall,door,floor,angle,front,depth,x,z,style,city}=tower;
-    assert.ok(tower.site.plotWidth>tower.site.foundationWidth&&tower.site.foundationWidth>tower.width,style+' width');
-    assert.ok(tower.site.plotDepth>tower.site.foundationDepth&&tower.site.foundationDepth>depth,style+' depth');
-    const [a,b]=approach,[c,d]=hall;
-    const distance=Math.hypot(c-a,d-b),yaw=Math.atan2(c-a,b-d);
-    const start=terrain.support(a,b);
-    assert.notEqual(start,null,style+' approach');
-    assert.ok(Math.abs(terrain.support(...door)-floor)<.04,style+' threshold');
-    const state={...spawn(city),x:a,z:b,y:start,yaw};
-    for(let ms=0;ms<distance/WALK_SPEED*1000+120;ms+=100)simulate(state,[[100,1,0,yaw,false]],terrain);
-    assert.ok(Math.hypot(state.x-c,state.z-d)<1.05,style+' entry');
-    assert.ok(Math.abs(state.y-floor)<.03,style+' interior floor');
-    const rear=-front*(depth*.5-.31);
-    assert.equal(terrain.support(x+Math.sin(angle)*rear,z+Math.cos(angle)*rear),null,style+' rear wall');
-    simulate(state,[[230,0,0,yaw,false]],terrain);
-    for(let ms=0;ms<distance/WALK_SPEED*1000+270;ms+=100)simulate(state,[[100,-1,0,yaw,false]],terrain);
-    assert.ok(Math.hypot(state.x-a,state.z-b)<1.3,style+' exit');
+  assert.deepEqual(towers,[]);
+  assert.ok(Object.values(skyline).every(list=>list.length===0));
+  for(const city of cities){
+    const player=spawn(city.id);
+    for(const [i,j] of tilesAround(player.x,player.z,155)){
+      const visual=tile(i,j,true);
+      assert.equal(visual.window.length+visual.pane.length+visual.roof.length,0);
+    }
   }
 });
 
@@ -221,95 +192,7 @@ test('larger buildings reserve more land and increase the foundation on both axe
   assert.ok(large.foundationWidth*large.foundationDepth>8*small.foundationWidth*small.foundationDepth);
 });
 
-test('residential forms have distinct furnished interiors and facilities keep walkable approaches',()=>{
-  const {streetBuildings,buildingStyles,appearanceVariants,renovationStyles}=JSON.parse(readFileSync(new URL('stats.json',file),'utf8'));
-  assert.ok(buildingStyles>=112);
-  assert.ok(appearanceVariants>7000);
-  assert.equal(renovationStyles.length,10);
-  const residential=streetBuildings.filter(building=>building.type==='apartment');
-  assert.equal(new Set(residential.map(home=>home.interior.key)).size,residential.length);
-  assert.equal(new Set(residential.map(home=>home.interior.design)).size,8);
-  assert.ok(residential.every(home=>home.rooms>=3));
-  // A ray through the middle of the furnished front window must reach a room surface
-  // before any exterior mass. This catches a full shell left behind the new panes.
-  for(const home of residential.filter(building=>building.style==='paris-stone-garden-wing')){
-    const {x,z,level,angle,front,width,depth}=home,c=Math.cos(angle),s=Math.sin(angle);
-    const nearby=tilesAround(x,z,Math.hypot(width,depth)).map(([a,b])=>tile(a,b,true));
-    const coordinates=(a,b)=>[(a-x)*c-(b-z)*s,((a-x)*s+(b-z)*c)*front];
-    const windows=nearby.flatMap(({pane})=>Array.from({length:pane.length/16},(_,i)=>pane.subarray(i*16,i*16+16)))
-      .filter(pane=>{
-        const [u,v]=coordinates(pane[0],pane[2]);
-        return Math.floor(pane[15])===APARTMENT_GLASS&&pane[1]>level+1.2&&pane[1]<level+2.6&&
-          Math.abs(u)<width*.49&&v>depth*.26&&v<depth*.51;
-      });
-    const visible=windows.some(pane=>{
-      const [center,v]=coordinates(pane[0],pane[2]);
-      const u=center+.18,y=pane[1]+.23;
-      let wall=-Infinity,room=-Infinity;
-      for(const {box} of nearby)for(let i=0;i<box.length;i+=16){
-        if(Math.abs(box[i+1]-y)>=box[i+7]*.5||Math.abs(box[i]-x)>width||Math.abs(box[i+2]-z)>depth)continue;
-        const [a,b]=coordinates(box[i],box[i+2]);
-        const halfW=Math.hypot(box[i+3],box[i+5])*.5,halfD=Math.hypot(box[i+9],box[i+11])*.5;
-        if(Math.abs(a-u)>halfW||b-halfD>=v+1)continue;
-        if(box[i+15]>=ROOM_MATERIAL_OFFSET)room=Math.max(room,b+halfD);
-        else wall=Math.max(wall,b+halfD);
-      }
-      return room>wall+.01;
-    });
-    assert.ok(visible,home.style+' transparent frontage at '+x+','+z);
-  }
-  const apartments=Object.values(apartmentPlans).flat();
-  assert.equal(new Set(apartments.map(plan=>JSON.stringify(plan.volumes))).size,30);
-  const eras=new Set(),wears=new Set(),windows=new Set();
-  for(const city of cities){
-    const local=streetBuildings.filter(building=>building.city===city.id);
-    const homes=local.filter(building=>building.type==='apartment'),shops=local.filter(building=>building.type==='facility');
-    assert.equal(homes.length,30);
-    assert.deepEqual(new Set(homes.map(building=>building.style)),new Set(apartmentPlans[city.id].map(plan=>plan.id)));
-    assert.equal(shops.length,facilityPlans.length);
-    assert.deepEqual(new Set(shops.map(building=>building.style)),new Set(facilityPlans.map(plan=>plan.id)));
-    const spawnPoint=spawn(city.id);
-    for(const [ix,iz] of tilesAround(spawnPoint.x,spawnPoint.z,150)){
-      const visual=tile(ix,iz,true);
-      for(let i=15;i<visual.window.length;i+=16){
-        const look=facadeAppearance(visual.window[i]);
-        if(!look)continue;
-        eras.add(look.era);wears.add(look.wear);windows.add(look.window);
-      }
-    }
-  }
-  assert.equal(eras.size,6);
-  assert.equal(wears.size,8);
-  assert.equal(windows.size,8);
-  for(const building of streetBuildings){
-    const {x,z,width,depth,site,level,approach,style}=building;
-    const {platforms}=get(x,z);
-    assert.ok(site.plotWidth>=site.foundationWidth&&site.foundationWidth>width,style+' plot width');
-    assert.ok(site.plotDepth>=site.foundationDepth&&site.foundationDepth>depth,style+' plot depth');
-    let slab=false;
-    for(let i=0;i<platforms.length;i+=8){
-      const [a,b,w,d,,,y]=platforms.subarray(i,i+8);
-      if(Math.hypot(x-a,z-b)<.002&&Math.abs(y-level)<.002&&
-        w*2>=site.foundationWidth-.003&&d*2>=site.foundationDepth-.003)slab=true;
-    }
-    assert.ok(slab,style+' foundation has a physics platform');
-    assert.notEqual(terrain.support(...approach),null,style+' sidewalk access');
-    if(style==='produce-market'){
-      assert.notEqual(terrain.support(x,z),null,building.city+' market aisle');
-      const [a,b]=approach,yaw=Math.atan2(x-a,b-z),distance=Math.hypot(x-a,z-b);
-      const state={...spawn(building.city),x:a,z:b,y:terrain.support(a,b),yaw};
-      for(let ms=0;ms<distance/WALK_SPEED*1000+170;ms+=100)simulate(state,[[100,1,0,yaw,false]],terrain);
-      assert.ok(Math.hypot(state.x-x,state.z-z)<1.35,building.city+' market entrance');
-    }
-  }
-});
-
 test('surface roads stay above the terrain and the expanded crowd has safe sidewalk routes',()=>{
-  const stats=JSON.parse(readFileSync(new URL('stats.json',file),'utf8'));
-  assert.ok(stats.roadConnections>=30);
-  assert.ok(stats.infill>=3000);
-  assert.ok(stats.squares>=6);
-  assert.ok(stats.capitalBuildings>=100);
   const {pedestrians}=JSON.parse(readFileSync(new URL('architecture.json',file),'utf8'));
   assert.equal(pedestrians.length,100);
   assert.equal(new Set(pedestrians.map(p=>p.id)).size,pedestrians.length);
@@ -409,26 +292,13 @@ test('a pedestrian plants a shoe while their body advances along a slope',()=>{
   assert.deepEqual(peopleMeshes([person],0,[0,0,0],()=>undefined),{box:[],chamfer:[],tube:[],ball:[]});
 });
 
-test('existing atlas tiles acquire signal and lamp materials without changing their geometry',async()=>{
-  const [ix,iz]=toTile(...toGlobal('tokyo',0,43));
-  const fileBytes=readFileSync(new URL(ix+'-'+iz+'.bin',file));
-  const {batch}=await prepareVisualTile(Uint8Array.from(fileBytes).buffer,ix,iz);
-  const materials=[];
-  for(const range of batch.ranges.filter(range=>range.kind==='box'))
-    for(let i=0;i<range.count;i++)materials.push(Math.floor(batch.data[range.start+i*16+15]));
-  for(const material of [SIGNAL_GREEN,SIGNAL_GREEN+1,SIGNAL_RED])
-    assert.equal(materials.filter(value=>value===material).length,2);
-  assert.ok(materials.includes(STREET_LAMP));
-  assert.deepEqual([signalAt(1),signalAt(14),signalAt(18),signalAt(30)],[SIGNAL_GREEN,SIGNAL_GREEN+1,SIGNAL_RED,SIGNAL_GREEN]);
-});
-
-test('baked trees, streetlights and signal poles block walking at their visible locations',()=>{
+test('removed trees, streetlights and poles leave no collision on the open streets',()=>{
   const [ix,iz]=toTile(...toGlobal('tokyo',0,43)),footprints={};
-  const counts=recordFixtures(tile(ix,iz,true),footprints);
-  assert.ok(counts.trees>0&&counts.lamps>0&&counts.signals>0);
-  for(const entries of Object.values(footprints)){
-    for(let i=0;i<entries.length;i+=6)assert.equal(terrain.support(entries[i],entries[i+1]),null);
-  }
+  const visual=tile(ix,iz,true);
+  assert.deepEqual(recordFixtures(visual,footprints),{trees:0,lamps:0,signals:0});
+  assert.deepEqual(footprints,{});
+  assert.ok(Number.isFinite(terrain.support(...toGlobal('tokyo',8.1,25))));
+  assert.deepEqual([signalAt(1),signalAt(14),signalAt(18),signalAt(30)],[SIGNAL_GREEN,SIGNAL_GREEN+1,SIGNAL_RED,SIGNAL_GREEN]);
 });
 
 test('walking follows a diagonal corridor and a falling player can land on a shelf below them',()=>{

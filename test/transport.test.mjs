@@ -5,10 +5,12 @@ import {WORLD_VERSION,toTile,waterLevel} from '../dist/geography.js';
 import {decodeTile,tilePath} from '../dist/tiles.js';
 import {simulate,spawn,terrainSampler} from '../dist/physics.js';
 import {roadTunnels,tunnelFloor,tunnelPoint,tunnelSupport} from '../dist/road-tunnels.js';
-import {metroLegs,metroAction,platformY,railPose,railwayMeters,stationEntry,stations,trainState} from '../dist/metro.js';
+import {metroLegs,metroAction,platformY,railPose,railwayMeters,stationEntry,stationPoint,stationSupport,stations,trainState} from '../dist/metro.js';
 import {airport} from '../dist/transport-layout.js';
 import {switchVehicle} from '../dist/driving.js';
-import {planePose} from '../dist/moving-models.js';
+import {metroBatches} from '../dist/metro-scene.js';
+import {TRAIN_VARIANT,METRO_MATERIAL_BASE,metroMaterial,metroUv} from '../dist/metro-materials.js';
+import {drawTrain,trainMeshes,planePose} from '../dist/moving-models.js';
 import {resolveTransport,waypoints} from '../dist/transport.js';
 
 const tiles=new Map(),base=new URL('../dist/',import.meta.url);
@@ -80,27 +82,48 @@ test('the airport departure rolls onto the runway before gaining altitude',()=>{
   assert.equal(roll.y,airport.elevation);
   assert.ok(climb.airborne&&climb.y>airport.elevation+20&&climb.x<roll.x-300);
   const stats=JSON.parse(readFileSync(new URL('./world/'+WORLD_VERSION+'/stats.json',base)));
-  assert.equal(stats.linkedBuildings,stats.buildings);
-  assert.equal(stats.civicSites.filter(site=>site.type==='construction').length,6);
-  assert.ok(stats.civicSites.filter(site=>site.type==='parking').length>=12);
+  assert.equal(stats.buildings,0);
   for(const kind of ['avenue','collector','street','alley','gravel','sand'])assert.ok(stats.roadSurfaces[kind]>0);
 });
 
-test('all twelve city parks have ten distinct layouts and usable arrivals',()=>{
-  const {civicSites}=JSON.parse(readFileSync(new URL('./world/'+WORLD_VERSION+'/stats.json',base)));
-  const parks=civicSites.filter(site=>site.type==='park');
+test('all twelve park waypoints still arrive on dry ground',()=>{
+  const parks=waypoints.filter(point=>point.id.startsWith('park-'));
   assert.equal(parks.length,12);
-  assert.equal(new Set(parks.map(park=>park.style)).size,10);
-  assert.equal(new Set(parks.map(park=>park.city)).size,6);
   for(const park of parks){
-    const id='park-'+park.city+'-'+park.style;
-    const player=resolveTransport(spawn(),'waypoint',id,0,terrain);
-    assert.ok(player,id+' entrance');
-    assert.equal(player.city,park.city);
-    assert.deepEqual([player.x,player.z],park.approach);
-    const distance=Math.hypot(park.x-player.x,park.z-player.z)-park.depth*.5+2;
-    const duration=Math.ceil(distance/6.8*10)+3;
-    for(let i=0;i<duration;i++)simulate(player,[[100,1,0,player.yaw,false]],terrain);
-    assert.ok(Math.hypot(park.x-player.x,park.z-player.z)<park.depth*.5,id+' park path');
+    const player=resolveTransport(spawn(),'waypoint',park.id,0,terrain);
+    assert.ok(player,park.id);
+    assert.ok(Number.isFinite(terrain.support(player.x,player.z)));
+    assert.equal(terrain.water(player.x,player.z),null);
   }
+});
+
+test('rail graphics use textured triangles, with real boarding openings and no phantom bench collisions',()=>{
+  const station=stations[0],leg=metroLegs[0];
+  const trackside=metroBatches(station.x,station.z);
+  assert.ok(trackside.length);
+  assert.ok(trackside.every(batch=>batch.ranges.every(range=>range.kind==='tri')));
+  const triangles=trackside.reduce((count,batch)=>count+batch.data.length/16,0);
+  assert.ok(triangles<480);
+  const collect=data=>new Set(Array.from({length:data.length/16},(_,i)=>data[i*16+15]));
+  const places=new Set(trackside.flatMap(batch=>[...collect(batch.data)]));
+  assert.deepEqual([...places].sort((a,b)=>a-b),Object.values(metroMaterial).slice(9));
+  for(const phase of ['ready','running']){
+    const meshes={};
+    drawTrain(meshes,{leg,distance:0,phase});
+    assert.deepEqual(Object.keys(meshes),['tri']);
+    assert.ok(meshes.tri.length<210*16);
+    const doors=meshes.tri.filter((value,index)=>index%16===15&&Math.floor(value)===metroMaterial.trainDoor);
+    assert.equal(doors.length,phase==='ready'?40:48);
+    assert.ok([...collect(meshes.tri)].every(mat=>mat>=METRO_MATERIAL_BASE&&mat<metroMaterial.track));
+    for(const mat of Object.values(metroMaterial).slice(0,9)){
+      assert.ok(collect(meshes.tri).has(mat));
+      assert.ok(collect(meshes.tri).has(mat+TRAIN_VARIANT));
+    }
+    assert.deepEqual(metroUv(meshes.tri[12]),[0,0]);
+  }
+  const stopped={leg,distance:0,phase:'ready'};
+  assert.equal(trainMeshes(stopped),trainMeshes({...stopped}));
+  assert.notEqual(trainMeshes(stopped),trainMeshes({...stopped,phase:'departing'}));
+  const floor=stationSupport(station.id,...stationPoint(station,.87,6.4));
+  assert.equal(floor,platformY);
 });

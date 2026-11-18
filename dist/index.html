@@ -37,7 +37,7 @@
 <link rel="modulepreload" href="./mesh-builder.js">
 <link rel="modulepreload" href="./surfaces.js">
 <link rel="preload" href="./materials/architecture-v18.bin" as="fetch" crossorigin>
-<link rel="preload" href="./world/atlas-15/architecture.json" as="fetch" crossorigin>
+<link rel="preload" href="./world/atlas-16/architecture.json" as="fetch" crossorigin>
 </head>
 <body>
 <svg class="symbols" xmlns="http://www.w3.org/2000/svg">
@@ -71,8 +71,8 @@
  <main id="intro">
    <div class="intro-content">
      <h1>ATLANTIS<span>.</span></h1>
-     <div class="intro-jp">街に散らばった本</div>
-     <p>路上の本を10冊拾い、塔の下の鳥居をくぐる。追ってくるものは三連装拳銃「RD II」で気絶させられる。</p>
+     <div class="intro-jp">海に囲まれた島々</div>
+     <p>路上の本を10冊拾い、塔の下の鳥居をくぐる。追跡者に出会ったら、武器を切り替えて切り抜ける。</p>
      <div class="intro-actions">
        <button class="action primary" id="start" disabled><svg><use href="#i-compass"/></svg><span id="startText">ゲームを始める</span><svg class="next"><use href="#i-arrow"/></svg></button>
      </div>
@@ -96,17 +96,20 @@
    <div class="hud-bottom">
      <div class="control-hint"><svg><use href="#i-mouse"/></svg><span id="controlHint">WASD 移動 · ドラッグ 視点</span></div>
      <div class="hud-actions">
-       <button id="reloadBtn" class="glass" aria-keyshortcuts="R"><svg><use href="#i-reload"/></svg><span>リロード</span></button>
+       <button id="reloadBtn" class="glass" aria-keyshortcuts="R"><svg><use href="#i-reload"/></svg><span id="reloadLabel">リロード</span></button>
        <button id="vehicleBtn" class="glass" aria-keyshortcuts="V"><svg><use href="#i-car"/></svg><span id="vehicleLabel">車に乗る</span></button>
      </div>
    </div>
    <section id="weaponHud" class="glass" aria-label="拳銃 RD II の残弾">
      <svg aria-hidden="true"><use href="#i-gun"/></svg>
-     <div class="weapon-text"><span class="weapon-name">RD II</span><span class="weapon-count"><strong id="ammoMag">120</strong><i>/</i><span id="ammoReserve">130</span></span></div>
+     <div class="weapon-text"><button id="weaponSwap" type="button" aria-label="武器を切り替える" aria-keyshortcuts="Q" title="武器を切り替える (Q)"><span class="weapon-name" id="weaponName">RD II</span><span aria-hidden="true">↔</span></button><span class="weapon-count"><strong id="ammoMag">120</strong><i>/</i><span id="ammoReserve">130</span></span></div>
      <div class="weapon-rule"><span id="reloadProgress"></span></div>
      <span id="weaponNote"></span>
    </section>
    <div class="touch-controls"><div id="joystick" aria-label="移動スティック"><div id="stick"></div></div><button id="runBtn" class="glass" aria-pressed="false">走る</button><button id="fireBtn" class="glass" aria-label="撃つ"><svg><use href="#i-gun"/></svg></button></div>
+   <div id="lockHud" hidden aria-hidden="true">
+     <div id="lockTarget" hidden><span></span></div>
+   </div>
    <div id="reticle"><i></i><i></i><i></i></div>
    <div id="hitMark" aria-hidden="true"></div>
    <div id="hitCount" role="status"></div>

@@ -9,6 +9,7 @@ const path='./world/'+WORLD_VERSION+'/sight/';
 const stride=6;
 
 function sightIndex(data,[x,z]){
+  if(!data.length)return {data,x,z};
   const bins=Array.from({length:binsPerTile**2},()=>[]);
   for(let i=0;i<data.length;i+=stride){
     for(let a=bin(data[i]*.02);a<=bin(data[i+3]*.02);a++)
@@ -71,6 +72,7 @@ export function createVisibility(load,capacity=32){
       const id=ix+'-'+iz,tile=cache.get(id);
       if(!tile){unknown=true;continue;}
       const {x,z,data,bins}=tile;
+      if(!data.length)continue;
       for(let p=bin(minX-x);p<=bin(maxX-x);p++)for(let q=bin(minZ-z);q<=bin(maxZ-z);q++){
         for(const i of bins[index(p,q)])if(intersects(a,b,data,i,x,z,padding))return true;
       }

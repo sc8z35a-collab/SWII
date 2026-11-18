@@ -1,3 +1,4 @@
+import {METRO_COLUMN,metroMaterial,metroSheets} from '../dist/metro-materials.js';
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync} from 'node:fs';
@@ -67,4 +68,19 @@ test('the shipped manifest matches the catalog and its atlases exist',()=>{
     }
   }
   assert.ok(!JSON.stringify(manifest).includes('sk-'),'no key in the manifest');
+});
+
+test('metro sheets assign both train variants and the station without replacing existing rail textures',()=>{
+  const {table,slots}=buildPhotoTable({sheets:metroSheets});
+  assert.deepEqual(metroSheets.map(sheet=>sheet.slots.length),[9,9,9]);
+  assert.equal(slots.length,27);
+  for(const sheet of metroSheets){
+    const image=readFileSync(new URL('../dist/materials/generated/'+sheet.file,import.meta.url));
+    assert.equal(image.toString('ascii',8,12),'WEBP');
+  }
+  for(const [i,id] of Object.keys(metroMaterial).slice(0,9).entries())
+    assert.equal(slots[table[(METRO_COLUMN+i)*4+1]].id,id+'-worn');
+  for(const [i,id] of Object.keys(metroMaterial).entries())
+    assert.equal(slots[table[(METRO_COLUMN+i)*4]].id,id);
+  assert.equal(table[83*4],-1);
 });
