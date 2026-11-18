@@ -13,7 +13,7 @@ import {loadArchitectureMaterials} from './architecture-materials.js';
 import {airport,airportZone} from './transport-layout.js';
 import {nearestStation,railPose,trainState} from './metro.js';
 import {metroBatches,undergroundLight} from './metro-scene.js';
-import {drawPlane,drawTrain,planePose} from './moving-models.js';
+import {drawPlane,trainMeshes,planePose} from './moving-models.js';
 import {playerFloor,resolveTransport,transportDestination} from './transport.js';
 import {createMission,missionPlazaFloor,missionSpawn,missionTerminal} from './mission.js';
 import {ASCENT_MS,BOOK_TARGET,EVACUATION_MS,FIRE_INTERVAL,PLAYER_HEIGHT,SURVIVAL_MS,launchHeight,launchSite} from './mission-layout.js';
@@ -23,7 +23,7 @@ import {missionData} from './mission-data.js';
 import {nearVehicle} from './driving.js';
 import {RD2,muzzleDeceleration} from './ballistics.js';
 import {ACTIVE_RANGE} from './pursuit.js';
-import {distanceToBounds} from './mesh-batches.js';
+import {INK_CAPACITY,findLock,lockWindow,weaponOrder,weapons} from './weapons.js';
 import {createSound} from './sound.js';
 import {drawBirds} from './birds.js';
 import {createAudio} from './audio.js';
@@ -36,8 +36,6 @@ const look=$('look'),joystick=$('joystick'),stick=$('stick'),runButton=$('runBtn
 let save=readProgress();
 try{save=readProgress(localStorage);}catch{}
 const saveKey='atlantis.survival.v2';
-// The light mode: 400 lines, up to 120 frames a second and nothing drawn beyond 50 m.
-const LIGHT_RADIUS=50,LIGHT_REACH=150,LIGHT_FPS=120;
 const sound=createSound();
 let localRun=null;
 try{
@@ -61,13 +59,12 @@ let arrivalBatch=null,moveTime=0;
 let meshKey='',meshView,meshRevision=-1,meshRetryAt=0,hasMeshes=false;
 let motion=missionSpawn(),position=[motion.x,motion.z],yaw=motion.yaw,pitch=0,bob=0,phase=0;
 let toastTimer,frameTime=0,hudTime=0,startTime=0,lastLocalSave=0;
-let nextFrame=0,nextWalker=0,walkers,autoScale=1,frameAverage=0,lastTuning=0,stableWindows=0;
+let nextFrame=0,nextWalker=0,walkers;
 let sceneLight,lightFrom,lightTarget,lightSince=0,lightCity;
 let panelName='',running=false,lookPointer=null,movePointer=null,move=[0,0];
 let confirmed=null,highestAck=0,correction=[0,0,0];
 let unsent=[],outstanding=[],lastSend=0,wasMoving=false,lastHeading=0,lastHeartbeat=0;
 let transitPending=false,viewOffset=0,flightStart=null,serverClock=0;
-let shoreX=Infinity,shoreZ=Infinity;
 const animationEpoch=(Date.now()-performance.now())/1000;
 const coarsePointer=matchMedia('(pointer:coarse)'),reduceMotion=matchMedia('(prefers-reduced-motion: reduce)');
 const keys=new Set();
@@ -81,13 +78,9 @@ const canMove=()=>journey.connected||journey.mode==='local';
 const transitClock=()=>Date.now()+serverClock;
 const watchingAirport=()=>airportZone(motion.x,motion.z,10)&&!motion.station;
 function applyProgress(next){
-  const qualityChanged=next.quality!==save.quality;
+  if(next.fps!==save.fps)nextFrame=0;
   save=next;
-  if(qualityChanged){
-    autoScale=1;frameAverage=0;stableWindows=0;
-    renderer?.setQuality(save.quality);
-  }
-  renderer?.setDisplay?.({resolution:save.resolution,reflections:save.reflections,hdr:save.hdr});
+  renderer?.setDisplay(save);
   audio.setVolume(save.volume);sound.setVolume(save.volume);
   $('fps').hidden=!save.showFps;
   if(!save.mouseLock&&document.pointerLockElement)document.exitPointerLock?.();
@@ -161,15 +154,15 @@ function missionHud(view,now){
     set(hint,'次の発射まで '+Math.max(1,Math.ceil(((view.launches+1)*FIRE_INTERVAL-elapsed)/1000))+'秒');
     fill.style.width=countdown/600*100+'%';
   }
-  $('health').hidden=!running;
+  $('health').hidden=!running&&view.phase!=='books';
   hud.hidden=terminal;
   if(hp!==shownHealth){
     shownHealth=hp;
     $('health').setAttribute('aria-label','耐久力 '+hp+' / 4');
-    healthPips.forEach((part,i)=>part.classList.toggle('empty',i>=hp));
+    healthPips.forEach((part,i)=>part.style.setProperty('--filled',clamp(hp-i,0,1)*100+'%'));
   }
   // The last point of durability: the screen edge pulses red.
-  stage.classList.toggle('critical',running&&hp===1);
+  stage.classList.toggle('critical',hp>0&&hp<=1);
   const pursuers=enemies.filter(e=>e.alerted&&!(e.stun>0));
   const trackers=enemies.filter(e=>e.mode==='track'&&!(e.stun>0));
   const nearbyMissiles=missiles.filter(m=>Math.hypot(m.x-motion.x,m.z-motion.z,m.y-motion.y)<270);
@@ -208,17 +201,43 @@ function missionHud(view,now){
 }
 const armed=()=>active&&!travelling&&!transitPending&&!panel.open&&canMove()&&!missionTerminal(missionView.phase)&&
   !motion.vehicle&&!motion.station&&!motion.train?.boardedAt;
+let pendingWeapon=null,equipDeadline=0;
+function changingWeapon(now){
+  return pendingWeapon!==null&&now<equipDeadline;
+}
+function cycleWeapon(){
+  if(!armed()||changingWeapon(performance.now()))return;
+  const current=weaponOrder.indexOf(missionView.gun?.id),next=weaponOrder[(current+1)%weaponOrder.length];
+  trigger=false;
+  if(journey.connected){
+    if(journey.equip(next)){pendingWeapon=next;equipDeadline=performance.now()+900;}
+  }else if(mission.equip(motion,next)){
+    acceptMission(mission.view(),performance.now());
+    weaponHud(missionView,performance.now());
+    writeCheckpoint();
+  }
+}
 function weaponHud(view,now){
   const gun=view.gun,hud=$('weaponHud'),set=(node,value)=>{if(node.textContent!==value)node.textContent=value;};
-  const usable=Boolean(gun)&&!missionTerminal(view.phase)&&!motion.vehicle&&!motion.station;
+  const usable=Boolean(gun)&&!missionTerminal(view.phase)&&!motion.vehicle&&!motion.station&&!motion.train?.boardedAt;
   hud.hidden=!usable;$('reticle').hidden=!usable;$('reloadBtn').hidden=!usable;$('fireBtn').hidden=!usable;
   if(!usable)return;
-  set($('ammoMag'),String(gun.mag));set($('ammoReserve'),String(gun.reserve));
+  const type=weapons[gun.id]??RD2,ink=Boolean(type.inkCost),shielder=gun.id==='shielder';
+  const inkText=(gun.ink/10).toFixed(1);
+  hud.dataset.weapon=gun.id??'rd2';
+  hud.setAttribute('aria-label',type.name+' の残弾');
+  set($('weaponName'),type.name);set($('ammoMag'),String(gun.mag));
+  set($('ammoReserve'),ink?'INK '+inkText:String(gun.reserve));
+  $('weaponSwap').disabled=changingWeapon(now);
   const reloading=gun.reloading>0;
-  hud.dataset.state=gun.mag===0?'empty':gun.mag<=RD2.barrels*5?'low':'';
-  $('reloadProgress').style.transform='scaleX('+(reloading?clamp(1-gun.reloading/RD2.reloadMs,0,1):gun.mag/RD2.magazine)+')';
-  set($('weaponNote'),reloading?'リロード中':gun.mag===0&&gun.reserve===0?'弾切れ — 落ちてくる弾薬箱を拾う':gun.mag===0?'R でリロード':'');
-  $('reloadBtn').disabled=reloading||gun.mag>=RD2.magazine||gun.reserve<=0;
+  hud.dataset.state=gun.mag===0?'empty':gun.mag<=(ink?1:RD2.barrels*5)?'low':'';
+  const fraction=ink?gun.ink/INK_CAPACITY:gun.mag/type.magazine;
+  $('reloadProgress').style.transform='scaleX('+(reloading?clamp(1-gun.reloading/type.reloadMs,0,1):fraction)+')';
+  set($('weaponNote'),reloading?(ink?'インク補充中':'リロード中'):
+    gun.mag===0?(ink?'R で補充':gun.reserve?'R でリロード':'弾切れ。弾薬箱を拾う'):
+    shielder?'T1 シールド有効':'');
+  $('reloadBtn').disabled=reloading||!gun.canReload;
+  set($('reloadLabel'),ink?'インク補充':'リロード');
   if(reloading&&!reloadHeard){reloadHeard=true;sound.reload();}
   if(!reloading)reloadHeard=false;
   // Every round that lands is confirmed at the reticle, with the count toward the twenty that stun.
@@ -241,17 +260,16 @@ function weaponHud(view,now){
   }
 }
 function startReload(){
-  if(!armed())return;
+  if(!armed()||changingWeapon(performance.now()))return;
   const gun=missionView.gun;
-  if(!gun||gun.reloading>0||gun.mag>=RD2.magazine||gun.reserve<=0)return;
+  if(!gun?.canReload||gun.reloading>0)return;
   if(journey.connected)journey.reload();
   else if(mission.reload())acceptMission(mission.view(),performance.now());
 }
-// One pull fires the three barrels together; holding the trigger repeats at the pistol's cycle time.
 function pullTrigger(now){
-  if(!armed()||now-lastShotAt<RD2.cycleMs)return;
-  const gun=missionView.gun;
-  if(!gun||gun.reloading>0)return;
+  if(!armed()||changingWeapon(now))return;
+  const gun=missionView.gun,type=weapons[gun?.id]??RD2;
+  if(!gun||gun.reloading>0||now-lastShotAt<type.cycleMs)return;
   if(gun.mag<=0){
     if(now-emptyAt>420){emptyAt=now;sound.empty();}
     startReload();
@@ -261,15 +279,31 @@ function pullTrigger(now){
   if(journey.connected){
     if(!journey.fire(heading(yaw),pitch))return;
   }else{
-    if(!mission.shoot(motion,heading(yaw),pitch))return;
+    if(!mission.shoot(motion,heading(yaw),pitch,terrain))return;
     acceptMission(mission.view(),now);
     seenShots=missionView.gun.shots;
   }
   lastShotAt=now;kick=1;flashUntil=now+60;
   sound.shot();
 }
+const lockHud=$('lockHud'),lockMark=$('lockTarget');
+function drawLock(view,fov,eye){
+  const gun=view.gun;
+  lockHud.hidden=gun?.id!=='sr1t'||!armed()||flightStart!==null;
+  if(lockHud.hidden)return;
+  const window=lockWindow(gun.mag);
+  const scale=stage.clientHeight/(2*Math.tan(fov*rad/2));
+  lockHud.style.width=2*window.halfWidth*scale+'px';
+  lockHud.style.height=2*window.halfHeight*scale+'px';
+  const lock=gun.mag>0&&gun.reloading<=0&&findLock(eye,yaw,pitch,window,view.enemies,
+    (a,b)=>sight.blocked(a,b)===false&&!terrain.terrainOccludes(a,b));
+  lockHud.dataset.locked=String(Boolean(lock));
+  lockMark.hidden=!lock;
+  if(lock)lockMark.style.transform='translate('+lock.x*scale+'px,'+(-lock.y*scale)+'px)';
+}
 function acceptMission(next,now){
   if(!next)return;
+  if(next.gun?.id===pendingWeapon)pendingWeapon=null;
   if(next.phase!==missionView.phase)prefetchAt=0;
   previousView=missionView;missionView=next;viewSince=now;
   if(active&&(next.phase!==previousView.phase||missionView.event?.id!==lastEvent&&missionView.event))missionHud(next,now);
@@ -312,24 +346,20 @@ function setMotion(next,{reset=false}={}){
 }
 function stream(x,z,now,landmark){
   if(!renderer)return;
-  const light=save.quality==='low'&&!renderer.software,grid=light?16:96;
-  const cx=Math.round(x/grid)*grid,cz=Math.round(z/grid)*grid;
-  // The view distance setting (1-10) loads 200-740 m around the player; 0 keeps the automatic radius.
-  const chosen=save.viewDistance>0?140+save.viewDistance*60:coarsePointer.matches&&save.quality!=='high'?344:435;
-  const radius=renderer.software?Math.min(240,chosen):light?LIGHT_RADIUS:chosen;
-  // The light mode still keeps the ground around the player loaded for the creatures that roam on it.
-  const reach=light?LIGHT_REACH:radius;
-  const key=cx+','+cz+','+radius+','+save.quality+','+renderer.software+','+(landmark?'hero':'walk');
+  const grid=96,cx=Math.round(x/grid)*grid,cz=Math.round(z/grid)*grid;
+  // The view distance setting (1-10) loads 200-740 m around the player.
+  const chosen=save.viewDistance>0?140+save.viewDistance*60:coarsePointer.matches?344:435;
+  const radius=renderer.software?Math.min(240,chosen):chosen;
+  const key=cx+','+cz+','+radius+','+renderer.software+','+(landmark?'hero':'walk');
   if(key!==meshKey){
-    meshKey=key;meshView=world.select(cx,cz,reach,x,z,landmark);meshRevision=-1;meshRetryAt=now+1500;
+    meshKey=key;meshView=world.select(cx,cz,radius,x,z,landmark);meshRevision=-1;meshRetryAt=now+1500;
   }else if(now>=meshRetryAt){
     world.refresh(meshView);meshRetryAt=now+1500;
     if(!hasMeshes)toast('地形データを再読み込みしています');
   }
   if(meshRevision!==world.revision){
-    let batches=world.batches(meshView);
-    if(light)batches=batches.filter(batch=>distanceToBounds(batch.bounds,x,z)<=(radius+grid)**2);
-    renderer.load(batches,renderer.software?139:light?radius:Math.round(Math.min(380,Math.max(140,radius*.52))),radius);
+    const batches=world.batches(meshView);
+    renderer.load(batches,renderer.software?139:Math.round(Math.min(380,Math.max(140,radius*.52))),radius);
     hasMeshes=batches.length>0;meshRevision=world.revision;
   }
 }
@@ -690,24 +720,10 @@ function updateStartButton(){
   $('start').disabled=!['local','cloud'].includes(journey?.mode)||!renderer;
 }
 const journey=createJourney(onJourney);
-function tuneScale(now,interval,target){
-  if(save.quality!=='auto')return;
-  frameAverage=frameAverage?frameAverage*.94+Math.min(interval,90)*.06:target;
-  if(now-lastTuning<1450)return;
-  lastTuning=now;
-  let scale=autoScale;
-  if(frameAverage>target*1.34){scale=Math.max(.68,scale-.10);stableWindows=0;}
-  else if(frameAverage<target*1.11){
-    if(++stableWindows>=3){scale=Math.min(1,scale+.05);stableWindows=0;}
-  }else stableWindows=0;
-  if(scale!==autoScale){autoScale=scale;renderer.setAutoScale(scale);}
-}
-
 function cityLighting(now,x,z){
   const city=cityById.get(districtAt(x,z));
-  if(!sceneLight||lightCity!==city||Math.hypot(x-shoreX,z-shoreZ)>65){
-    shoreX=x;shoreZ=z;
-    lightTarget={...lighting(city),...seascape(x,z)};lightFrom=sceneLight??lightTarget;
+  if(!sceneLight||lightCity!==city){
+    lightTarget={...lighting(city),...seascape()};lightFrom=sceneLight??lightTarget;
     lightCity=city;lightSince=now;
   }
   const progress=clamp((now-lightSince)/1050,0,1);
@@ -808,6 +824,7 @@ function pollGamepad(dt){
   if(edge(2)&&usable)void useTransport($('transportBtn').hidden?null:$('transportBtn').dataset.action);
   if(edge(9)){if(panel.open)panel.close();else if(active)openPanel();else void begin();}
   // RT fires (held, it repeats like the mouse button) and Y reloads.
+  if(edge(4)&&usable)cycleWeapon();
   const fire=usable&&pressed(7);
   if(fire!==padFire){padFire=fire;trigger=fire;if(fire){sound.unlock();pullTrigger(performance.now());}}
   if(edge(3)&&usable){sound.unlock();startReload();}
@@ -874,16 +891,15 @@ function frame(now){
   audio.setPaused(document.hidden||panel.open);
   if(travelling)travelProgress();
   if(document.hidden||!renderer||travelling&&!arrivalReady||panel.open){
-    frameTime=0;nextFrame=0;frameAverage=0;lastTuning=now;stableWindows=0;
+    frameTime=0;nextFrame=0;
     return;
   }
   if(!startTime)startTime=now;
-  const lightMode=save.quality==='low'&&!renderer.software;
   // The frame rate setting caps the loop; the display's refresh rate is the real ceiling.
-  const target=renderer.software?1000/30:save.fps===0?0:1000/(save.fps||(lightMode?LIGHT_FPS:60));
+  const target=save.fps===0?0:1000/save.fps;
   if(now+1<nextFrame)return;
   nextFrame=Math.max(nextFrame+target,now+target*.35);
-  const interval=frameTime?now-frameTime:target;
+  const interval=frameTime?now-frameTime:target||1000/60;
   const dt=Math.min(MAX_BATCH_MS,interval)/1000;frameTime=now;
   const elapsed=(now-startTime)/1000;
   const visual=renderedMission(now);
@@ -937,29 +953,27 @@ function frame(now){
     }
   }
   if(active&&motion.station){
-    const key='metro:'+Math.round(eye[0]/48)+','+Math.round(eye[2]/48)+':'+save.quality;
+    const key='metro:'+Math.round(eye[0]/48)+','+Math.round(eye[2]/48);
     if(key!==meshKey){
       meshKey=key;renderer.load(metroBatches(eye[0],eye[2]),125,235);hasMeshes=true;
     }
   }else stream(eye[0],eye[2],now,active?null:[goal[0],goal[2]]);
   if(hasMeshes){
-    tuneScale(now,interval,target||1000/60);
     if(now>=nextWalker){
       const underground=active&&motion.station;
       const focus=active?{x:motion.x,y:motion.y+PLAYER_HEIGHT,z:motion.z,radius:motion.vehicle?2.7:motion.train?.boardedAt?0:1.5}:null;
-      walkers=underground?{}:peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround,renderer.detailedActors===true,
-        focus,lightMode?LIGHT_RADIUS+6:155);
+      walkers=underground?trainMeshes(state):peopleMeshes(world.pedestrians,animationEpoch+now/1000,eye,visualGround,renderer.detailedActors===true,
+        focus,155);
       if(active&&motion.vehicle){
         const s=Math.sin(motion.yaw),c=Math.cos(motion.yaw),t=motion.y;
         const a=terrain.support(motion.x+s*1.5,motion.z-c*1.5,t)??t;
         const b=terrain.support(motion.x-s*1.5,motion.z+c*1.5,t)??t;
         updateVehicleModel(walkers,motion,Math.atan2(a-b,3),driveInput,now);
       }
-      if(active&&walkers.detailed&&!motion.vehicle&&!motion.station&&!motion.train?.boardedAt)playerShadow(walkers,now);
-      if(state)drawTrain(walkers,state);
+      if(save.shadows&&active&&walkers.detailed&&!motion.vehicle&&!motion.station&&!motion.train?.boardedAt)playerShadow(walkers,now);
       if(flight)drawPlane(walkers,flight);
-      if(!underground)drawMission(walkers,active?visual:{phase:'books',lift:0},eye,elapsed,renderer.software||save.quality==='low',visualGround,lightMode);
-      if(!underground&&!renderer.software&&!lightMode)drawBirds(walkers,eye,animationEpoch+now/1000,visualGround);
+      if(!underground)drawMission(walkers,active?visual:{phase:'books',lift:0},eye,elapsed,renderer.software,visualGround);
+      if(!underground&&!renderer.software)drawBirds(walkers,eye,animationEpoch+now/1000,visualGround);
       if(!underground&&Math.hypot(eye[0]-airport.x,eye[2]-airport.z)<325)
         for(const x of [851,902,971])drawPlane(walkers,{x,y:airport.elevation,z:2023,yaw:.18},'d6ddd7');
       nextWalker=now+1000/30-1;
@@ -968,19 +982,20 @@ function frame(now){
     // The pistol follows the camera every frame, so it never lags behind a turn of the head.
     let inHand=null;
     const gun=missionView.gun;
-    if(gun&&active&&!renderer.software&&!motion.vehicle&&!motion.station&&!missionTerminal(missionView.phase)){
+    if(gun&&active&&!motion.vehicle&&!motion.station&&!missionTerminal(missionView.phase)){
       inHand={};
       const left=gun.reloading>0?Math.max(0,gun.reloading-(journey.connected?now-viewSince:0)):0;
       const pace=Math.min(1,Math.hypot(motion.vx,motion.vz)/9);
       const ahead=[Math.sin(yaw)*Math.cos(pitch),Math.sin(pitch),-Math.cos(yaw)*Math.cos(pitch)];
       const cramped=sight.blocked(eye,eye.map((n,i)=>n+ahead[i]*.68))===true;
       retract+=((cramped?1:0)-retract)*(1-Math.exp(-dt*13));
-      drawHeldGun(inHand,eye,yaw,pitch,{kick,retract,reload:left>0?clamp(1-left/RD2.reloadMs,0,1):0,
+      drawHeldGun(inHand,eye,yaw,pitch,{weapon:gun.id,kick,retract,reload:left>0?clamp(1-left/(weapons[gun.id]??RD2).reloadMs,0,1):0,
         flash:now<flashUntil?(flashUntil-now)/60:0,muzzleHeat:now-lastShotAt<900?1:0,
         sway:reduceMotion.matches?[0,0]:[Math.cos(phase)*.0035*pace,-Math.abs(Math.sin(phase))*.004*pace],
         lowered:pace>.95&&now-lastShotAt>600?.022:0});
     }
     const options=viewOptions(visual,active?steadyEye:eye,dt);
+    drawLock(visual,options.fov,eye);
     const rendered=renderer.render(eye,goal,light,elapsed,walkers,arrivalBatch,signal,inHand,options);
     listen(visual,eye,options.speed,flight,state);
     if(arrivalReady&&rendered)finishArrival();
@@ -988,7 +1003,6 @@ function frame(now){
 }
 // Every preference shown in the settings panel; values are validated again by readProgress.
 const settingRows=[
-  {key:'quality',title:'描画品質',text:'自動では滑らかさに合わせて解像度を調整します。',options:[['auto','自動'],['high','高精細'],['low','軽量']]},
   {key:'sensitivity',title:'視点の感度',text:'ドラッグ、マウス、右スティックで見回す速さです。',options:[[.65,'低い'],[1,'標準'],[1.5,'高い']]},
   {key:'fov',title:'視野角',text:'広くすると周りが見やすくなります。運転中は速度に合わせて少し広がります。',options:[[61,'標準'],[70,'広め'],[78,'広角']]},
   {key:'invertY',title:'上下の視点操作',text:'上下の向きを飛行機の操縦のように反転します。',options:[[false,'標準'],[true,'反転']]},
@@ -996,10 +1010,11 @@ const settingRows=[
   {key:'motionBlur',title:'モーションブラー',text:'速く移動しているときに周りを流れるようにぼかします。',options:[[true,'オン'],[false,'オフ']]},
   {key:'shake',title:'画面の揺れ',text:'爆発や巨人の足音、発射の振動で視点が揺れます。',options:[[true,'オン'],[false,'オフ']]},
   {key:'volume',title:'音量',text:'街の音、足音、車、爆発などの効果音です。Mキーで消音を切り替えられます。',options:[[0,'オフ'],[.35,'小'],[.7,'中'],[1,'大']]},
-  {key:'resolution',title:'解像度',text:'自動は画面と動作速度に合わせます。FHDは縦1080、2Kは縦1440、4Kは縦2160ピクセルで描きます（軽量モードは400のまま）。4Kはとても重くなります。',options:[['auto','自動'],['fhd','FHD'],['2k','2K'],['4k','4K']]},
-  {key:'fps',title:'フレームレート',text:'1秒あたりの描画回数の上限です。無制限は画面が表示できる回数（リフレッシュレート）まで描きます。',options:[[30,'30 fps'],[60,'60 fps'],[120,'120 fps'],[0,'無制限']]},
+  {key:'resolution',title:'解像度',text:'縦の描画解像度を切り替えます。',options:[['fhd','FHD · 1080'],['1.5k','1.5K · 1200'],['2k','2K · 1440'],['4k','4K · 2160']]},
+  {key:'fps',title:'フレームレート',text:'無制限では、画面のリフレッシュレートまで描画します。',options:[[30,'30 FPS'],[60,'60 FPS'],[90,'90 FPS'],[120,'120 FPS'],[0,'無制限']]},
+  {key:'shadows',title:'影',text:'人物や構造物の影を描画します。',options:[[true,'あり'],[false,'なし']]},
   {key:'hdr',title:'HDR',text:'明るさの幅が広い16ビットで描き、ブルーム・自動露出・時間方向のアンチエイリアスを使います。なしは8ビットで軽くなります。',options:[[true,'あり'],[false,'なし']]},
-  {key:'reflections',title:'反射',text:'ガラス・水面・車の塗装に空や街並みを映します。なしにすると軽くなります。',options:[[true,'あり'],[false,'なし']]},
+  {key:'reflections',title:'反射',text:'ガラス・車の塗装に空や街並みを映します。なしにすると軽くなります。',options:[[true,'あり'],[false,'なし']]},
   {key:'viewDistance',title:'読み込み範囲',text:'周りの街をどこまで読み込んで描くかです。広いほど遠くまで見えますが重くなります。',range:[0,10]},
   {key:'showFps',title:'フレームレート表示',text:'画面の右下に1秒あたりの描画回数を表示します。',options:[[false,'オフ'],[true,'オン']]}
 ];
@@ -1081,7 +1096,7 @@ $('cloudRetry').onclick=()=>location.reload();
 $('vehicleBtn').onclick=()=>void useTransport('vehicle');
 $('transportBtn').onclick=()=>void useTransport($('transportBtn').dataset.action);
 $('surfaceBtn').onclick=()=>void useTransport('metro-exit');
-const controlKeys=['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight','KeyV','KeyF','Space','KeyR'];
+const controlKeys=['KeyW','KeyA','KeyS','KeyD','ArrowUp','ArrowDown','ArrowLeft','ArrowRight','ShiftLeft','ShiftRight','KeyV','KeyF','Space','KeyR','KeyQ'];
 const fireKeys=new Set(['KeyF','Space']);
 function eventClock(event){
   const now=performance.now();
@@ -1100,6 +1115,7 @@ window.addEventListener('keydown',e=>{
   e.preventDefault();
   if(e.repeat)return;
   if(e.code==='KeyV'){void useTransport('vehicle');return;}
+  if(e.code==='KeyQ'){cycleWeapon();return;}
   if(e.code==='KeyR'){sound.unlock();startReload();return;}
   if(fireKeys.has(e.code)){sound.unlock();trigger=true;pullTrigger(eventClock(e));keys.add(e.code);return;}
   if(canMove()&&!missionTerminal(missionView.phase)){
@@ -1237,23 +1253,26 @@ fireButton.addEventListener('pointerdown',e=>{
   trigger=true;pullTrigger(eventClock(e));
 });
 for(const event of ['pointerup','pointercancel','lostpointercapture'])fireButton.addEventListener(event,()=>{trigger=false;});
+$('weaponSwap').onclick=cycleWeapon;
 $('reloadBtn').onclick=()=>{sound.unlock();startReload();};
+let photoRequest;
 function useRenderer(canvas,next){
+  photoRequest?.abort();
+  photoRequest=new AbortController();
   if(scene!==canvas)scene.replaceWith(canvas);
   scene=canvas;renderer=next;
-  renderer.setQuality(save.quality);
-  renderer.setDisplay?.({resolution:save.resolution,reflections:save.reflections,hdr:save.hdr});
+  renderer.setDisplay(save);
   void loadArchitectureMaterials().then(bytes=>{
     if(renderer===next)next.setMaterials(bytes);
   }).catch(error=>console.info('Architectural materials unavailable',error.message));
   // Image-generated textures, when the skill has made them. About 170 layers with mipmaps take
   // 134 MB of video memory at 384 px, 93 MB at 320 px and 46 MB at 224 px.
-  const photoTile=coarsePointer.matches||save.quality==='low'?224:save.quality==='high'?384:320;
-  if(next.setPhotoTextures)void loadGeneratedTextures({tile:photoTile}).then(photos=>{
+  const photoTile=coarsePointer.matches?224:320;
+  if(next.setPhotoTextures)void loadGeneratedTextures({tile:photoTile,signal:photoRequest.signal,metroOnly:next.software===true}).then(photos=>{
     if(photos&&renderer===next)next.setPhotoTextures(photos);
     else for(const layer of photos?.layers??[])layer.close?.();
   });
-  meshKey='';hasMeshes=false;autoScale=1;frameTime=0;nextFrame=0;frameAverage=0;
+  meshKey='';hasMeshes=false;frameTime=0;nextFrame=0;
   $('failure').hidden=true;
   updateStartButton();
 }
@@ -1275,7 +1294,7 @@ hardwareScene.addEventListener('webglcontextlost',e=>{
 });
 hardwareScene.addEventListener('webglcontextrestored',()=>{
   try{
-    const next=createRenderer(hardwareScene);
+    const next=createRenderer(hardwareScene,{hdr:save.hdr});
     rendererGeneration++;
     releaseControls();
     useRenderer(hardwareScene,next);
@@ -1312,7 +1331,7 @@ async function boot(){
     void requestLaunchAssembly().catch(()=>{});
     updateStart();journey.start();
     try{
-      const next=createRenderer(hardwareScene,{wait:false});
+      const next=createRenderer(hardwareScene,{wait:false,hdr:save.hdr});
       try{await next.ready;}catch(error){next.dispose();throw error;}
       if(!renderer)useRenderer(hardwareScene,next);
     }catch(error){

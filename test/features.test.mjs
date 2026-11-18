@@ -1,7 +1,8 @@
 import test from 'node:test';
 import assert from 'node:assert/strict';
 import {readFileSync,existsSync} from 'node:fs';
-import {readProgress,settingDefaults} from '../dist/progress.js';
+import {readProgress,settingDefaults,resolutionLines} from '../dist/progress.js';
+import {displaySize} from '../dist/engine.js';
 import {peopleMeshes} from '../dist/people.js';
 import {missionLight} from '../dist/mission-scene.js';
 import {drawCar,CAR_BRAKE,CAR_REVERSE} from '../dist/moving-models.js';
@@ -102,16 +103,21 @@ test('sound calls are harmless where Web Audio is missing',async()=>{
   assert.equal(audio.started,false);
 });
 
-test('display settings: resolution, frame rate, reflections and view distance',()=>{
+test('display settings: fixed resolution, frame rate, shadows, reflections and view distance',()=>{
   const read=value=>readProgress(storage(value));
   const defaults=read({});
-  assert.equal(defaults.resolution,'auto');assert.equal(defaults.fps,60);
+  assert.equal(defaults.resolution,'fhd');assert.equal(defaults.fps,60);
   assert.equal(defaults.reflections,true);assert.equal(defaults.viewDistance,0);
   const chosen=read({resolution:'2k',fps:120,reflections:false,viewDistance:10});
   assert.deepEqual([chosen.resolution,chosen.fps,chosen.reflections,chosen.viewDistance],['2k',120,false,10]);
   const invalid=read({resolution:'8k',fps:144,reflections:'no',viewDistance:11});
-  assert.deepEqual([invalid.resolution,invalid.fps,invalid.reflections,invalid.viewDistance],['auto',60,true,0]);
+  assert.deepEqual([invalid.resolution,invalid.fps,invalid.reflections,invalid.viewDistance],['fhd',60,true,0]);
   const top=read({resolution:'4k',fps:0,hdr:false});
+  const intermediate=read({resolution:'1.5k',fps:90,shadows:false,hdr:true,quality:'low'});
+  assert.deepEqual([intermediate.resolution,intermediate.fps,intermediate.shadows,intermediate.hdr],['1.5k',90,false,true]);
+  assert.equal('quality' in intermediate,false);
+  for(const [value,height] of Object.entries(resolutionLines))
+    assert.deepEqual(displaySize(1920,1080,value),[Math.round(height*16/9),height]);
   assert.deepEqual([top.resolution,top.fps,top.hdr,defaults.hdr],['4k',0,false,true]);
   assert.equal(read({viewDistance:2.5}).viewDistance,0);
 });

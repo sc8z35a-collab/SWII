@@ -28,16 +28,17 @@ const MAX_STEP=.012;
 
 // Advances one round and returns the points it passed through, so that a fast bullet
 // is tested against the world in short straight pieces.
-export function stepBullet(bullet,seconds,visit){
+export function stepBullet(bullet,seconds,visit,gun=RD2,steer){
   let left=seconds;
   while(left>1e-6){
     const dt=Math.min(left,MAX_STEP);
     left-=dt;
-    const speed=Math.hypot(bullet.vx,bullet.vy,bullet.vz),slow=RD2.drag*speed*dt;
+    const speed=Math.hypot(bullet.vx,bullet.vy,bullet.vz),slow=gun.drag*speed*dt;
+    steer?.(bullet,dt,speed);
     // Semi-implicit drag stays stable for any step size.
     const keep=1/(1+slow);
     bullet.vx*=keep;bullet.vz*=keep;
-    bullet.vy=(bullet.vy-RD2.gravity*dt)*keep;
+    bullet.vy=(bullet.vy-gun.gravity*dt)*keep;
     const from=[bullet.x,bullet.y,bullet.z];
     const to=[bullet.x+bullet.vx*dt,bullet.y+bullet.vy*dt,bullet.z+bullet.vz*dt];
     bullet.age+=dt*1000;
@@ -45,7 +46,7 @@ export function stepBullet(bullet,seconds,visit){
     if(visit(from,to)===false)return false;
     [bullet.x,bullet.y,bullet.z]=to;
   }
-  return bullet.age<RD2.lifeMs&&bullet.travel<RD2.range;
+  return bullet.age<gun.lifeMs&&bullet.travel<gun.range;
 }
 
 export function aimDirection(yaw,pitch){

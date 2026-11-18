@@ -1,3 +1,4 @@
+import {TRAIN_VARIANT,METRO_COLUMN,METRO_MATERIAL_BASE,METRO_PALETTE} from './metro-materials.js';
 import {APPEARANCE_CODES,APPEARANCE_SCALE,eraProfiles,windowProfiles} from './facade-look.js';
 import {architectureShader} from './architecture-shader.js';
 import {APARTMENT_GLASS,EXHAUST,HEAT_METAL,IGNITION,LIFT_MATERIAL_OFFSET,ROOM_MATERIAL_OFFSET,SHOCK,SPIRIT,DUST,LEATHER,PAPER,SOOT,SHIELD_TILE,CERAMIC_SHELL} from './architecture-materials.js';
@@ -142,25 +143,9 @@ float sunShadow(vec3 p,vec3 n,float NoL){
 }
 vec3 oceanHorizon(vec3 color,vec3 d){
   if(uOcean<=0.||d.y>.002)return color;
-  float toward=uOcean*smoothstep(.08,.41,dot(normalize(d.xz+1e-5),uOceanBearing));
-  if(toward<=0.)return color;
-  float far=min((max(uEye.y,0.)+4.)/max(-d.y,.0015),20000.);
-  vec2 p=uEye.xz+d.xz*far;
-  // Wave detail fades with the pixel footprint so the pattern never aliases toward the horizon.
-  float footprint=length(fwidth(p));
-  float detail=1.-smoothstep(3.,12.,footprint);
-  vec2 g=(vec2(noise(p*.045+uTime*vec2(.08,.05)),noise(p*.045+vec2(7.1,3.3)-uTime*vec2(.05,.07)))-.5)*detail;
-  g+=(vec2(noise(p*.21+uTime*.3),noise(p*.21+vec2(2.,9.)-uTime*.25))-.5)*.5*(1.-smoothstep(.6,2.5,footprint));
-  vec3 wn=normalize(vec3(g.x*.16,1.,g.y*.16));
-  float NoV=max(dot(wn,-d),0.);
-  float F=.02+.98*pow5(1.-NoV);
-  vec3 r=reflect(d,wn);
-  vec3 sea=vec3(.006,.026,.035)*(uAmbUp*6.+uSunColor*.55);
-  vec3 h=normalize(-d+uSun);
-  float glitter=D_GGX(max(dot(wn,h),0.),.012)*F*.25;
-  vec3 water=mix(sea,skyLUT(vec3(r.x,max(r.y,.01),r.z)),F)+uSunColor*glitter;
-  float haze=1.-smoothstep(-.035,-.0015,d.y);
-  return mix(color,mix(skyLUT(vec3(d.x,.012,d.z)),water,haze),toward);
+  float facing=dot(uOceanBearing,uOceanBearing)<.01?1.:smoothstep(.08,.41,dot(normalize(d.xz+1e-5),uOceanBearing));
+  float depth=smoothstep(.001,.045,-d.y);
+  return mix(color,vec3(.025,.115,.165),uOcean*facing*depth);
 }
 // In the light mode nothing is drawn beyond the view radius: surfaces dissolve into the sky before it.
 float viewEdge(vec3 p){
@@ -230,6 +215,8 @@ layout(location=6)in vec4 aStyle;
 uniform mat4 uVP;
 uniform float uTime;
 uniform int uKind;
+uniform highp sampler2D uPhotoTable;
+uniform highp float uPhotoReady;
 // xyz: the direction the camera faces, w: the drawing radius in meters (0 draws everything).
 uniform vec4 uViewCone;
 uniform vec3 uViewEye;
@@ -276,6 +263,16 @@ void main(){
     wNormal=vec3(normal.x,sqrt(max(.00001,1.-dot(normal,normal))),normal.y);
     float color=aStyle[corner];
     surfaceColor=vec3(floor(color/2048.)/31.,mod(floor(color/32.),64.)/63.,mod(color,32.)/31.);
+  }
+  if(aStyle.a>=${METRO_MATERIAL_BASE}.&&aStyle.a<${METRO_MATERIAL_BASE+METRO_PALETTE.length}.){
+    int corner=aPosition.x>.5?1:(aPosition.z>.5?2:0);
+    float uv=aStyle[corner];
+    surfaceColor.xy=vec2(mod(uv,4096.),floor(uv/4096.))/256.;
+    surfaceColor.z=-1.;
+    if(uPhotoReady>.5){
+      vec2 layers=texelFetch(uPhotoTable,ivec2(${METRO_COLUMN}+int(aStyle.a)-${METRO_MATERIAL_BASE},0),0).xy;
+      surfaceColor.z=fract(aStyle.a)>=${TRAIN_VARIANT}&&layers.y>=0.?layers.y:layers.x;
+    }
   }
   localPos=position*extent;localNormal=aNormal;
   style=aStyle;center=aCenter;
@@ -415,7 +412,49 @@ vec3 bevelNormal(vec3 n,float strength){
   if(dot(near,near)<1e-6)return n;
   return normalize(n+basis*near*.85*strength);
 }
+const vec3 metroColors[${METRO_PALETTE.length}]=vec3[](${METRO_PALETTE.map(hex=>
+  'vec3('+[0,2,4].map(i=>(parseInt(hex.slice(i,i+2),16)/255).toFixed(4)).join(',')+')').join(',')});
+vec4 metroSurface(int id){
+  int layer=int(round(surfaceColor.z));
+  vec2 uv=surfaceColor.xy;
+  vec3 base;
+  if(layer>=0)base=photoAt(layer,uv);
+  else{
+    base=toLinear(metroColors[id]);
+    if(id==0||id==1||id==6){
+      if(uv.y>.57&&uv.y<.66)base=vec3(.07,.24,.20);
+      if(uv.y>.19&&uv.y<.49&&fract(uv.x*2.)>.14&&fract(uv.x*2.)<.86)base=vec3(.035,.065,.075);
+    }
+    if(id==9){
+      float rail=min(abs(uv.x-.21),abs(uv.x-.79));
+      if(rail<.016)base=vec3(.31,.32,.30);
+      else if(fract(uv.y*6.)<.21)base*=.62;
+    }
+    if(id==12&&uv.x<.065)base=vec3(.48,.35,.11);
+    if(id==7||id==11||id==15){
+      if(abs(uv.x-.5)<.026&&fract(uv.y)<.65)base=vec3(.8,.76,.60);
+    }
+  }
+  float lit=.71+.28*max(wNormal.y,0.);
+  float fog=exp(-min(length(wPos-uEye),380.)*.011);
+  return encodeOutput(mix(vec3(.010,.016,.019),base*lit,fog),.85);
+}
 void main(){
+  if(style.a>=${METRO_MATERIAL_BASE}.&&style.a<${METRO_MATERIAL_BASE+METRO_PALETTE.length}.){
+    frag=metroSurface(int(style.a)-${METRO_MATERIAL_BASE});return;
+  }
+  if(floor(style.a)==3.){
+    float distanceToEye=length(wPos-uEye);
+    float swell=distanceToEye<175.?sin(dot(wPos.xz,vec2(.16,.25))+uTime*.72)*(1.-smoothstep(45.,175.,distanceToEye)):0.;
+    vec3 water=vec3(.025,.115,.165)+(toLinear(style.rgb)-vec3(.055,.23,.32))*.20+swell*.007;
+    float edge=smoothstep(.28,.82,distanceToEye/uViewRadius);
+    if(edge>0.){
+      vec3 ray=normalize(wPos-uEye);
+      water=mix(water,oceanHorizon(skyLUT(ray),ray),edge);
+    }
+    frag=encodeOutput(water,.70);
+    return;
+  }
   vec3 n=normalize(wNormal);
   beginShading(wPos,n);
   vec3 v=normalize(uEye-wPos);
@@ -468,7 +507,6 @@ void main(){
   base=facadeMaterial(base,n,int(mat),era,footprint,roughness,cavity);
   float metal=0.,f0=.04,translucency=0.,sheen=0.,occlusion=cavity,windowMask=0.,share;
   vec3 emission=vec3(0.),windowColor=vec3(0.);
-  bool water=false;
 
   if(mat==${HEAT_METAL}.){metal=.75;roughness=min(roughness,.42);}
   if(mat==${IGNITION}.){
@@ -697,38 +735,6 @@ void main(){
     if(rock>.5){sheen=0.;roughness=.8;}
   }
   if(mat==35.||mat==36.){roughness=.95;occlusion*=.9+.1*grain;}
-
-  // Water: reflections of the city and the sky with layered waves.
-  vec3 waterColor=vec3(0.);
-  if(mat==3.){
-    water=true;
-    vec2 p=wPos.xz;
-    float waves=1.-smoothstep(.30,1.9,footprint),ripples=1.-smoothstep(.092,.51,footprint);
-    vec2 swell=vec2(sin(dot(p,vec2(.24,.49))+uTime*.66),cos(dot(p,vec2(.51,-.14))+uTime*.72));
-    vec2 wave=vec2(sin(p.x*1.6+p.y*.8+uTime*1.3),cos(p.y*1.8-p.x*.9+uTime*1.1));
-    vec2 ripple=vec2(noise(p*3.1+uTime*vec2(.9,.4))-.5,noise(p*3.1+vec2(5.,2.)-uTime*vec2(.5,.8))-.5);
-    float swells=1.-smoothstep(2.5,9.,footprint);
-    vec2 slope=swell*.026*swells+wave*.04*waves+ripple*.11*ripples;
-    int rippleLayer=listedLayer(109,.5);
-    if(rippleLayer>=0&&waves>0.){
-      // Photographed ripples drifting with the water add fine slopes from their light and shade.
-      vec2 q=p/2.5+uTime*vec2(.018,.011);
-      float e=.004,h0=luminance(photoAt(rippleLayer,q));
-      vec2 grad=vec2(luminance(photoAt(rippleLayer,q+vec2(e,0.)))-h0,luminance(photoAt(rippleLayer,q+vec2(0.,e)))-h0)/e;
-      slope+=grad*.0035*waves;
-    }
-    vec3 wn=normalize(vec3(slope.x,1.,slope.y));
-    float NoV=max(dot(wn,v),1e-3);
-    float F=.02+.98*pow5(1.-NoV);
-    vec3 r=reflect(-v,wn);
-    vec3 reflection=environment(r,.04);
-    vec3 body=toLinear(base)*.16*(uAmbUp*2.5+uSunColor*max(uSun.y,0.)*.35)*(uQuality>.5?cloudShadow(wPos,uSun):1.);
-    float NoL=max(dot(wn,uSun),0.);
-    vec3 h=normalize(v+uSun);
-    float a=.03;
-    vec3 sunSpec=uSunColor*D_GGX(max(dot(wn,h),0.),a*a)*V_SmithGGX(NoV,NoL,a*a)*F*NoL*sunShadow(wPos,vec3(0.,1.,0.),NoL);
-    waterColor=mix(body,reflection,F)+sunSpec;
-  }
 
   // Facades: window grid with recessed jambs, glass reflections and the rooms behind.
   bool facade=mat==4.||mat==5.||mat==8.||mat==11.||mat==12.||mat==13.||mat==17.||mat==19.||mat==20.||mat==21.||refitted;
@@ -989,24 +995,17 @@ void main(){
     frag=encodeOutput(color,.85);
     return;
   }
-  vec3 color;
-  if(water){
-    color=waterColor;share=.5;
-  }else{
-    float NoL=max(dot(n,uSun),0.);
-    float shadow=uUnderground>.5?0.:sunShadow(wPos,geometryNormal,max(dot(geometryNormal,uSun),0.));
-    if(uUnderground<.5&&uQuality>.5)shadow*=cloudShadow(wPos,uSun);
-    color=shadeSurface(albedo,n,v,roughness,metal,f0,shadow,occlusion,translucency,sheen,share);
-    if(windowMask>0.){
-      color=mix(color,windowColor,windowMask);
-      share*=1.-windowMask*.85;
-    }
+  float shadow=uUnderground>.5?0.:sunShadow(wPos,geometryNormal,max(dot(geometryNormal,uSun),0.));
+  if(uUnderground<.5&&uQuality>.5)shadow*=cloudShadow(wPos,uSun);
+  vec3 color=shadeSurface(albedo,n,v,roughness,metal,f0,shadow,occlusion,translucency,sheen,share);
+  if(windowMask>0.){
+    color=mix(color,windowColor,windowMask);
+    share*=1.-windowMask*.85;
   }
   color+=emission;
   float edge=0.;
   if(groundLike||mat==35.||mat==36.||mat==38.){
-    float fadeStart=mat==3.?.24:.58;
-    edge=smoothstep(fadeStart,.80,length(uEye.xz-wPos.xz)/uViewRadius);
+    edge=smoothstep(.58,.80,length(uEye.xz-wPos.xz)/uViewRadius);
   }
   vec2 boundary=vec2(4000.,3000.)-abs(wPos.xz);
   edge=max(edge,1.-smoothstep(0.,113.,min(boundary.x,boundary.y)));

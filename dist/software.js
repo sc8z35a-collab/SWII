@@ -1,5 +1,6 @@
+import {TRAIN_VARIANT,METRO_COLUMN,METRO_MATERIAL_BASE,METRO_PALETTE,isMetroMaterial,metroUv} from './metro-materials.js';
 import {roofFaces,chamferFaces,taperFaces,windowFaces,paneFaces} from './models.js';
-import {normalize,vectorCross,cameraProjection} from './engine.js';
+import {normalize,vectorCross,cameraProjection,displaySize} from './engine.js';
 import {distanceToBounds,frustumPlanes,inFrustum} from './mesh-batches.js';
 import {rasterizer,packedColor} from './software-raster.js';
 import {terrainPolygons} from './terrain-polygon.js';
@@ -24,7 +25,8 @@ export function skyColor(light,x,y,z){
   const sky=blend(light.horizon,light.zenith,Math.max(0,elevation)**.48);
   if(!light.ocean||elevation>=.001)return sky;
   const bearing=light.oceanBearing??[-1,0];
-  const water=light.ocean*smoothstep(.08,.41,(x*bearing[0]+z*bearing[1])*inverse)*(1-smoothstep(-.027,.001,elevation));
+  const facing=Math.hypot(...bearing)<.1?1:smoothstep(.08,.41,(x*bearing[0]+z*bearing[1])*inverse);
+  const water=light.ocean*facing*smoothstep(.001,.045,-elevation);
   return water>0?blend(sky,blend(light.horizon,seaColor(light.night),.78),water):sky;
 }
 
@@ -250,9 +252,10 @@ export function drapedShadow([center,x,z,height,kind='box'],sun,groundAt){
 export function softwareRenderer(canvas,groundAt){
   const ctx=canvas.getContext('2d',{alpha:false});
   if(!ctx)throw Error('Canvas rendering unavailable');
-  let scene=[],detailRadius=139,viewRadius=240,quality='auto',autoScale=1,materials=null;
+  let scene=[],detailRadius=139,viewRadius=240,resolution='fhd',showShadows=true,reflections=true,materials=null;
+  const metroMaps=new Map();
   let actors=[],previousWalkers;
-  const baked=new Map(),compact=matchMedia('(pointer:coarse)').matches;
+  const baked=new Map();
   let shadows=new WeakMap(),shadowLight='';
   const emptyBins=()=>({terrain:[],roads:[],ground:[],objects:[],shadows:[]});
   const raster=rasterizer();
@@ -262,8 +265,11 @@ export function softwareRenderer(canvas,groundAt){
       const data=world[kind]??[];
       for(let i=0;i<data.length;i+=16){
         const pos=data.slice(i,i+3),x=data.slice(i+3,i+6),y=data.slice(i+6,i+9),z=data.slice(i+9,i+12);
-        const rawMat=Math.floor(data[i+15]),lift=rawMat>=LIFT_MATERIAL_OFFSET;
-        const color=data.slice(i+12,i+15),mat=lift?rawMat-LIFT_MATERIAL_OFFSET:rawMat,height=Math.hypot(...y);
+        const rawMat=Math.floor(data[i+15]),metro=isMetroMaterial(rawMat),lift=!metro&&rawMat>=LIFT_MATERIAL_OFFSET;
+        const values=data.slice(i+12,i+15);
+        const palette=metro?METRO_PALETTE[rawMat-METRO_MATERIAL_BASE]:null;
+        const color=metro?[0,2,4].map(i=>parseInt(palette.slice(i,i+2),16)/255):values;
+        const mat=metro?0:lift?rawMat-LIFT_MATERIAL_OFFSET:rawMat,height=Math.hypot(...y);
         const accessory=data[i+15]-rawMat>=.2499,look=facadeAppearance(lift?data[i+15]-LIFT_MATERIAL_OFFSET:data[i+15]);
         const layer=materialLayer(mat,look?.era);
         const roofAxes=mat===14?[normalize(x),normalize(z),pos]:null;
@@ -271,7 +277,7 @@ export function softwareRenderer(canvas,groundAt){
           Math.hypot(...x)>=6&&Math.hypot(...z)>=6;
         const smooth=kind==='tri'&&isSurface(mat)?{normals:[...y].map(unpackSlope),colors:[...color].map(unpackColor)}:null;
         let target=bins.objects;
-        if(kind==='tri')target=mat===9||mat===3||mat===LAND?bins.terrain:
+        if(kind==='tri'&&!metro)target=mat===9||mat===3||mat===LAND?bins.terrain:
           smooth||Math.abs(y[1])>=.18?bins.roads:bins.objects;
         else if(isGround)target=bins.ground;
         if((kind==='box'||kind==='chamfer'||kind==='taper')&&height>4&&Math.hypot(...x)>3&&Math.hypot(...z)>3){
@@ -284,8 +290,9 @@ export function softwareRenderer(canvas,groundAt){
           const width=Math.hypot(points[1][0]-points[0][0],points[1][2]-points[0][2]);
           const radius=Math.max(...points.map(p=>Math.hypot(p[0]-center[0],p[1]-center[1],p[2]-center[2])));
           const detail=(kind==='box'||kind==='chamfer'||kind==='taper')&&Math.abs(normal[1])<.39&&facadeMaterials.includes(mat);
-          const onGround=isGround||kind==='tri'&&target===bins.roads&&mat!==AIRCRAFT;
-          target.push({points,normal,center,radius,color,mat,height,width,accessory,detail,smooth,onGround,look,layer,roofAxes,lift});
+          const onGround=isGround||kind==='tri'&&!metro&&target===bins.roads&&mat!==AIRCRAFT;
+          target.push({points,normal,center,radius,color,mat,height,width,accessory,detail,smooth,onGround,look,layer,roofAxes,lift,
+            metro:metro?{id:data[i+15],uv:Array.from(values,metroUv)}:null});
         }
       }
     }
@@ -308,16 +315,15 @@ export function softwareRenderer(canvas,groundAt){
     baked.set(batch,layers);
     return layers;
   }
-  function render(eye,to,light,_time,walkers,arrival,signal=SIGNAL_GREEN){
+  function render(eye,to,light,_time,walkers,arrival,signal=SIGNAL_GREEN,inHand,options={}){
     if(walkers!==previousWalkers){
       actors=[];previousWalkers=walkers;
       if(walkers)append(walkers,{terrain:actors,roads:actors,ground:actors,objects:actors},[]);
     }
-    const native=Math.min(devicePixelRatio||1,quality==='high'?1.28:1.12);
-    const ratio=quality==='high'?native:quality==='low'?Math.min(native,.53):Math.min(native,compact?.66:.77)*autoScale;
-    const w=Math.max(1,Math.round(canvas.clientWidth*ratio)),h=Math.max(1,Math.round(canvas.clientHeight*ratio));
+    const [w,h]=displaySize(canvas.clientWidth,canvas.clientHeight,resolution);
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
-    const planes=frustumPlanes(cameraProjection(eye,to,w/h)),layers=[];
+    const fov=(options.fov??61)*Math.PI/180;
+    const planes=frustumPlanes(cameraProjection(eye,to,w/h,fov)),layers=[];
     let prepared=false;
     if(arrival&&!baked.has(arrival)&&inFrustum(arrival.bounds,planes)){
       prepare(arrival);prepared=true;
@@ -334,7 +340,7 @@ export function softwareRenderer(canvas,groundAt){
     }
     raster.begin(w,h);
     const forward=normalize(to.map((v,i)=>v-eye[i])),right=normalize(vectorCross(forward,[0,1,0])),up=vectorCross(right,forward);
-    const f=h/.589*.5;
+    const f=h/(2*Math.tan(fov/2));
     paintSky(ctx,w,h,forward,right,up,light);
     const sea=blend(light.horizon,seaColor(light.night),.76);
     const convert=p=>{
@@ -342,6 +348,7 @@ export function softwareRenderer(canvas,groundAt){
       return [dot(d,right),dot(d,up),dot(d,forward)];
     };
     function reflectedColor(face,point){
+      if(!reflections)return face.color;
       const n=face.normal,ray=normalize(eye.map((value,i)=>value-point[i]));
       const cosine=dot(n,ray),grazing=(1-Math.abs(cosine))**3;
       const reflected=ray.map((value,i)=>2*cosine*n[i]-value);
@@ -366,7 +373,7 @@ export function softwareRenderer(canvas,groundAt){
     }
     function draw(face,projected){
       const {p,depth,texture}=projected;
-      if(face.smooth||face.mat===3||face.onGround||face.mat===10){raster.fill(p,0,1,0,texture);return;}
+      if(face.smooth||face.mat===3||face.onGround||face.mat===10||face.metro&&texture){raster.fill(p,0,1,0,texture,projected.brightness);return;}
       if(isGlazing(face.mat)){
         const ray=normalize(eye.map((v,i)=>v-face.center[i]));
         const grazing=(1-Math.abs(dot(face.normal,ray)))**3;
@@ -392,7 +399,7 @@ export function softwareRenderer(canvas,groundAt){
     function project(face){
       let colors;
       if(face.mat===10)colors=face.points.map(point=>reflectedColor(face,point));
-      else if(face.smooth||face.mat===3||face.onGround){
+      else if(!face.metro&&(face.smooth||face.mat===3||face.onGround)){
         colors=face.points.map((point,i)=>{
           const n=face.smooth?.normals[i]??face.normal,incidence=Math.max(0,dot(n,light.sun));
           const shade=blend([.67+incidence*.33,.70+incidence*.29,.73+incidence*.24],
@@ -410,7 +417,17 @@ export function softwareRenderer(canvas,groundAt){
           return air?blend(lit,air,edge*edge*(3-2*edge)):lit;
         });
       }
-      const far=quality==='high'?174:quality==='low'?72:126;
+      if(face.metro){
+        const texture=metroMaps.get(face.metro.id)??metroMaps.get(Math.floor(face.metro.id));
+        if(texture){
+          const fog=Math.exp(-Math.hypot(...face.center.map((n,i)=>n-eye[i]))*.011);
+          const shade=.71+.28*Math.max(0,face.normal[1]);
+          const result=projectFace(face.points,convert,w,h,f,null,face.metro.uv);
+          if(result){result.texture=texture;result.brightness=shade*fog;}
+          return result;
+        }
+      }
+      const far=126;
       const profile=surfaceProfiles[face.layer],texture=materials?.[face.layer];
       let uv;
       if(texture&&((face.center[0]-eye[0])**2+(face.center[1]-eye[1])**2+
@@ -450,7 +467,7 @@ export function softwareRenderer(canvas,groundAt){
       const projected=project(face);
       if(projected)draw(face,projected);
     }
-    if(groundAt&&quality!=='low'&&light.night<.5){
+    if(groundAt&&showShadows&&light.night<.5){
       const key=light.sun.map(n=>Math.round(n*12)).join(',');
       if(key!==shadowLight){shadowLight=key;shadows=new WeakMap();}
       for(const bins of layers)for(const caster of bins.shadows){
@@ -490,10 +507,39 @@ export function softwareRenderer(canvas,groundAt){
         if(shape)raster.fill(shape.p,tint,alpha*(flame?[.47,.57,.84][i]:[.09,.14,.22,.28][i]));
       }
     }
+    if(inHand){
+      const held=[];
+      append(inHand,{terrain:held,roads:held,ground:held,objects:held},[]);
+      for(const face of held){
+        const projected=projectFace(face.points,convert,w,h,f);
+        if(projected)raster.fill(projected.p,packedColor(face.color));
+      }
+    }
     raster.present(ctx);
     return !arrival||baked.has(arrival)||!inFrustum(arrival.bounds,planes);
   }
   return {load,render,setMaterials(bytes){materials=softwareMaterialMips(bytes);},
-    setQuality(value){quality=value;autoScale=1;},setAutoScale(value){autoScale=value;},
+    setPhotoTextures({layers,table}){
+      const layerCanvas=document.createElement('canvas'),context=layerCanvas.getContext('2d',{willReadFrequently:true});
+      for(let i=0;i<METRO_PALETTE.length;i++){
+        for(let variant=0;variant<2;variant++){
+          const index=table[(METRO_COLUMN+i)*4+variant];
+          if(index<0)continue;
+          const levels=[];
+          for(let size=128;size>=4;size/=2){
+            layerCanvas.width=size;layerCanvas.height=size;
+            context.drawImage(layers[index],0,0,size,size);
+            levels.push({size,bytes:context.getImageData(0,0,size,size).data,rgb:true});
+          }
+          metroMaps.set(METRO_MATERIAL_BASE+i+variant*TRAIN_VARIANT,levels);
+        }
+      }
+      for(const layer of layers)layer.close?.();
+    },
+    setDisplay(options){
+      resolution=options.resolution??resolution;
+      showShadows=options.shadows??showShadows;
+      reflections=options.reflections??reflections;
+    },
     software:true};
 }

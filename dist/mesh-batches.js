@@ -82,8 +82,9 @@ export function distanceToBounds(bounds,x,z){
 export function frustumPlanes(matrix){
   const planes=[];
   for(let axis=0;axis<3;axis++)for(const sign of [-1,1]){
-    planes.push([matrix[3]+sign*matrix[axis],matrix[7]+sign*matrix[4+axis],
-      matrix[11]+sign*matrix[8+axis],matrix[15]+sign*matrix[12+axis]]);
+    const x=matrix[3]+sign*matrix[axis],y=matrix[7]+sign*matrix[4+axis],z=matrix[11]+sign*matrix[8+axis];
+    const inv=1/(Math.hypot(x,y,z)||1);
+    planes.push([x*inv,y*inv,z*inv,(matrix[15]+sign*matrix[12+axis])*inv]);
   }
   return planes;
 }

@@ -6,6 +6,7 @@ import {json,trustedOrigin,cookieName,readToken,sessionCookie} from './http.js';
 import {restorePlayer} from './profile.js';
 import {playerFloor,resolveTransport,transportActions,transportDestination} from '../dist/transport.js';
 import {createMission,missionSpawn,missionTerminal} from '../dist/mission.js';
+import {weaponById} from '../dist/weapons.js';
 import {createVisibility} from '../dist/visibility.js';
 import {ACTIVE_RANGE} from '../dist/pursuit.js';
 
@@ -166,7 +167,7 @@ export class Journey extends DurableObject {
         if(packet?.op==='drive')await this.drive(ws,packet,attach,now);
         else if(packet?.op==='tick')await this.tick(ws,attach,now);
         else if(packet?.op==='action')await this.action(ws,packet,attach,now);
-        else if(packet?.op==='fire'||packet?.op==='reload')await this.weapon(ws,packet,attach,now);
+        else if(packet?.op==='fire'||packet?.op==='reload'||packet?.op==='equip')await this.weapon(ws,packet,attach,now);
         else this.send(ws,{op:'error',error:'packet'});
       }catch(error){
         console.error('Journey command failed',error instanceof Error?error.message:'unknown');
@@ -208,13 +209,15 @@ export class Journey extends DurableObject {
   async weapon(ws,packet,attach,now){
     const player=this.data.player;
     if(missionTerminal(this.mission.phase()))return;
-    if(packet.op==='fire'&&(!Number.isFinite(packet.yaw)||!Number.isFinite(packet.pitch)||
-      Math.abs(packet.yaw)>Math.PI+.001||Math.abs(packet.pitch)>1.5)){
+    if((packet.op==='equip'&&!weaponById(packet.weapon))||
+      (packet.op==='fire'&&(!Number.isFinite(packet.yaw)||!Number.isFinite(packet.pitch)||
+        Math.abs(packet.yaw)>Math.PI+.001||Math.abs(packet.pitch)>1.5))){
       this.send(ws,{op:'error',error:'packet'});return;
     }
     await this.prepare(player);
     this.step({...player},attach,now);
-    if(packet.op==='fire')this.mission.shoot(player,packet.yaw,packet.pitch);
+    if(packet.op==='equip')this.mission.equip(player,packet.weapon);
+    else if(packet.op==='fire')this.mission.shoot(player,packet.yaw,packet.pitch,this.terrain);
     else this.mission.reload();
     this.dirty=true;
     this.send(ws,{op:'state',seq:attach.seq,...this.snapshot()});

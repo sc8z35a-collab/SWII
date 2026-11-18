@@ -631,7 +631,7 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     faceDepth:compileProgram(gl,faceVertex,depthFragment)
   };
   const meshes=new Map(),buckets=new Map();
-  let humans=null,cars=null,faces=null,shadowOnly=null,ready=false;
+  let humans=null,cars=null,faces=null,shadowPeople=null,ready=false,revision=0;
 
   function addMesh(key,{vertices,indices}){
     const buffer=gl.createBuffer(),elements=gl.createBuffer();
@@ -687,6 +687,9 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     return entry;
   }
   function fill(entry,source,indices){
+    // Camera-only redraws may select the very same instances between simulation updates.
+    if(entry.revision===revision&&entry.indices.length===indices.length&&indices.every((v,i)=>v===entry.indices[i]))return;
+    entry.revision=revision;entry.indices=indices;
     const length=indices.length*16;
     if(entry.data.length<length)entry.data=new Float32Array(2**Math.ceil(Math.log2(length)));
     for(const [i,index] of indices.entries())for(let k=0;k<16;k++)entry.data[i*16+k]=source[index*16+k];
@@ -702,12 +705,12 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   }
   const variantOf=(source,i)=>(Math.round(source[i*16+15])>>8)&3;
   // Bounding sphere test against frustum planes (from frustumPlanes()).
-  const visible=(planes,x,y,z,radius)=>!planes||planes.every(([a,b,c,d])=>a*x+b*y+c*z+d>=-radius*Math.hypot(a,b,c));
+  const visible=(planes,x,y,z,radius)=>!planes||planes.every(([a,b,c,d])=>a*x+b*y+c*z+d>=-radius);
   // Sorts actors into variant and detail buckets, skips those outside the view and uploads them.
   function prepare(eye,shadow,planes){
     const groups=[];
     // Bodies that only cast shadows (the player's own) join the shadow passes.
-    const people=shadow&&shadowOnly?.length?(humans??[]).concat(shadowOnly):humans;
+    const people=shadow?shadowPeople:humans;
     if(people?.length){
       const lists=new Map();
       for(let i=0;i<people.length/16;i++){
@@ -737,7 +740,10 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
     if(faces?.length){
       const lists=new Map();
       for(let i=0;i<faces.length/16;i++){
-        const dx=faces[i*16]-eye[0],dz=faces[i*16+2]-eye[2],kind=Math.round(faces[i*16+5]);
+        const at=i*16,x=faces[at],z=faces[at+2],kind=Math.round(faces[at+5]);
+        // Includes the open jaw, rotated head and animated vertical offset.
+        if(!visible(planes,x,faces[at+1],z,2*faces[at+4]))continue;
+        const dx=x-eye[0],dz=z-eye[2];
         const near=!shadow&&dx*dx+dz*dz<(mobile?48:95)**2&&meshes.has('face'+kind+'-1');
         const key='face'+kind+'-'+(near?1:0);
         if(!lists.has(key))lists.set(key,[]);
@@ -754,7 +760,11 @@ export function createActorRenderer(gl,{compileProgram,mobile}){
   return {
     get ready(){return ready;},
     programs:Object.values(programs),
-    update(walkers){humans=walkers?.humans??null;cars=walkers?.cars??null;faces=walkers?.faces??null;shadowOnly=walkers?.shadowHumans??null;},
+    update(walkers){
+      revision++;
+      humans=walkers?.humans;cars=walkers?.cars;faces=walkers?.faces;
+      shadowPeople=walkers?.shadowHumans?.length?(humans??[]).concat(walkers.shadowHumans):humans;
+    },
     draw({vp,eye,time,send,planes}){
       if(!ready)return;
       const groups=prepare(eye,false,planes);

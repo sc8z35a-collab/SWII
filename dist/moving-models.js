@@ -1,5 +1,6 @@
 import {airport} from './transport-layout.js';
 import {trainCarPose} from './metro.js';
+import {TRAIN_VARIANT,metroMaterial as m,metroQuad} from './metro-materials.js';
 
 const rgb=new Map();
 export const actorKinds=['box','chamfer','tube','ball','tri','cone','pyramid','taper','roof','effect'];
@@ -111,31 +112,66 @@ export function drawPlane(meshes,pose,paint='dce1dc'){
   }
 }
 
-export function drawTrain(meshes,state){
-  const {leg,distance,phase}=state,doors=phase==='ready'||phase==='arrived';
-  for(const segment of [-1,0,1]){
-    const {part,right,up,back}=meshFrame(meshes,trainCarPose(leg,distance+segment*15.1));
-    const length=14.7;
-    part('chamfer',0,.91,0,2.98,.42,length,'c6ccca',25);
-    part('chamfer',0,3.60,0,2.94,.34,length,'bfc9c8',25);
-    part('box',0,3.42,0,.15,.077,length*.87,'f3e7bd',7);
-    for(const side of [-1,1]){
-      part('box',side*1.43,1.35,0,.16,.55,length,'9caeaf',25);
-      part('box',side*1.51,1.47,0,.054,.22,length,'51877f',25);
-      part('box',side*1.43,3.10,0,.15,.38,length,'c2cdcb',25);
-      for(const at of [-6.85,-3.1,0,3.1,6.85])part('box',side*1.43,2.30,at,.158,1.44,.31,'bdc6c4',25);
-      for(const at of [-4.74,4.74]){
-        if(!(doors&&side===1&&segment===0))part('box',side*1.41,2.34,at,.14,1.57,1.36,'879b9e',10);
-        const seat=at<0?at+1.14:at-1.14;
-        part('box',side*.98,1.42,seat,.64,.20,1.12,'66817a',24);
-        part('box',side*1.27,1.68,seat,.16,.64,1.12,'66817a',24);
+function trainCarTemplate(segment,doors){
+  const meshes={};
+  const variant=segment===1?TRAIN_VARIANT:0;
+  const {point}=meshFrame(meshes,{x:0,y:0,z:0,yaw:0});
+  const half=7.35,side=1.48,bottom=1.12,top=3.52;
+  const quad=(points,material,options)=>metroQuad(meshes,points.map(p=>point(...p)),material+variant,options);
+  const horizontal=(width,y,material,flip)=>quad(
+    [[-width,y,half],[width,y,half],[width,y,-half],[-width,y,-half]],material,{v:3,flip});
+  horizontal(side,top,m.trainRoof,true);
+  horizontal(side-.035,top-.025,m.trainCeiling,false);
+  horizontal(side,bottom,m.trainFloor,true);
+  for(const sign of [-1,1]){
+    const x=side*sign,inner=x-.035*sign;
+    const sideQuad=(x,first,last,upper,lower,material,flip)=>quad(
+      [[x,upper,first],[x,upper,last],[x,lower,last],[x,lower,first]],material,{flip});
+    const cuts=[-half,-5.42,-4.06,4.06,5.42,half];
+    for(let i=1;i<cuts.length;i++){
+      const first=cuts[i-1],last=cuts[i],door=i===2||i===4;
+      if(door&&doors&&sign===1&&segment===0){
+        sideQuad(x,first,last,top,3.12,m.trainSide,sign===1);
+        continue;
       }
-      for(const at of [-4.9,4.9])part('tube',side*1.19,.47,at,.64,.24,.64,'414849',0,[up,right,back.map(n=>-n)]);
+      sideQuad(x,first,last,top,bottom,door?m.trainDoor:m.trainSide,sign===1);
+      sideQuad(inner,first,last,top-.025,bottom,door?m.trainDoor:m.trainWall,sign===-1);
     }
-    for(const end of [-1,1]){
-      part('chamfer',0,2.17,end*7.13,2.94,2.76,.49,'748c91',10);
-      part('box',0,1.17,end*7.41,1.9,.39,.074,'a9b4b2',25);
-      for(const side of [-1,1])part('box',side*.90,1.63,end*7.411,.28,.18,.058,end===1?'ede9c8':'ca6863',7);
+    for(const z of [-4.9,4.9])sideQuad(x,z-1.40,z+1.40,bottom,.19,m.trainBogie,sign===1);
+  }
+  for(const end of [-1,1]){
+    const z=end*half,outer=segment===end;
+    quad([[-side,top,z],[side,top,z],[side,bottom,z],[-side,bottom,z]],outer?m.trainCab:m.trainEnd,{flip:end===-1});
+    const inside=z-.035*end;
+    quad([[-side,top,inside],[side,top,inside],[side,bottom,inside],[-side,bottom,inside]],m.trainEnd,{flip:end===1});
+  }
+  return meshes.tri;
+}
+const carTemplates=new Map();
+export function drawTrain(meshes,{leg,distance,phase}){
+  const triangles=meshes.tri??=[],open=phase==='ready'||phase==='arrived';
+  for(const segment of [-1,0,1]){
+    const doors=open&&segment===0,key=doors?'open':segment;
+    if(!carTemplates.has(key))carTemplates.set(key,trainCarTemplate(segment,doors));
+    const source=carTemplates.get(key);
+    const {x,y,z,yaw}=trainCarPose(leg,distance+segment*15.1),c=Math.cos(yaw),s=Math.sin(yaw);
+    // Rotate the origin and three basis vectors; only the origin translates.
+    for(let i=0;i<source.length;i+=16){
+      triangles.push(x+c*source[i]-s*source[i+2],y+source[i+1],z+s*source[i]+c*source[i+2]);
+      for(let k=i+3;k<i+12;k+=3)
+        triangles.push(c*source[k]-s*source[k+2],source[k+1],s*source[k]+c*source[k+2]);
+      triangles.push(source[i+12],source[i+13],source[i+14],source[i+15]);
     }
   }
+}
+const emptyTrain={};
+let previousTrain=null;
+export function trainMeshes(state){
+  if(!state)return emptyTrain;
+  const {leg,distance,phase}=state;
+  if(previousTrain?.leg===leg&&previousTrain.distance===distance&&previousTrain.phase===phase)return previousTrain.meshes;
+  const meshes={};
+  drawTrain(meshes,state);
+  previousTrain={leg,distance,phase,meshes};
+  return meshes;
 }

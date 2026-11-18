@@ -160,9 +160,9 @@ export function createPursuit(sight,saved=null,{origin={x:0,z:0},random=Math.ran
       alerted:old?.alerted===true,yaw:finite(old?.yaw)?old.yaw:random()*Math.PI*2-Math.PI,
       lastSeen:old?.lastSeen&&finite(old.lastSeen.x,old.lastSeen.z)?old.lastSeen:null,
       walked:finite(old?.walked)?old.walked:0,
-      stun:finite(old?.stun)?clamp(old.stun,0,RD2.stunMs):0,hits:Number.isInteger(old?.hits)?clamp(old.hits,0,RD2.stunHits-1):0,
+      stun:finite(old?.stun)?clamp(old.stun,0,RD2.stunMs):0,hits:finite(old?.hits)?clamp(old.hits,0,RD2.stunHits-.1):0,
       mode:old?.alerted===true?'chase':'patrol',scent:-1,lost:0,
-      speedNow:0,route:[],planAt:index*67,lookAt:index*31,settleAt:0});
+      weapon:index<2?'h1':null,speedNow:0,route:[],planAt:index*67,lookAt:index*31,settleAt:0});
   }
   for(const actor of actors)if(actor.alerted&&!actor.lastSeen){actor.alerted=false;actor.mode='patrol';}
 
@@ -331,9 +331,9 @@ export function createPursuit(sight,saved=null,{origin={x:0,z:0},random=Math.ran
     return first;
   }
   // Twenty hits knock a creature out for three minutes. A hit also tells it where the shot came from.
-  function wound(actor,player){
+  function wound(actor,player,damage=1){
     if(actor.stun>0)return {id:actor.id,name:actor.name,hits:RD2.stunHits,stunned:false,down:true};
-    actor.hits++;
+    actor.hits=Math.round((actor.hits+damage)*10)/10;
     if(actor.hits>=RD2.stunHits){
       actor.hits=0;actor.stun=RD2.stunMs;calm(actor);actor.speedNow=0;actor.route=[];
       return {id:actor.id,name:actor.name,hits:RD2.stunHits,stunned:true,down:true};
@@ -343,12 +343,12 @@ export function createPursuit(sight,saved=null,{origin={x:0,z:0},random=Math.ran
   }
   // Millimetres are enough for drawing, and they keep the state sent to the browser short.
   const short=n=>n===null?null:Math.round(n*1000)/1000;
-  const view=()=>actors.map(({id,kind,name,x,y,z,yaw,scale,alerted,mode,speedNow,walked,stun,hits,face,size,hover})=>
+  const view=()=>actors.map(({id,kind,name,x,y,z,yaw,scale,alerted,mode,speedNow,walked,stun,hits,face,size,hover,weapon})=>
     ({id,kind,name,x:short(x),y:short(y),z:short(z),yaw:short(yaw),scale,alerted,mode,speedNow:short(speedNow),
-      walked:short(walked),stun:Math.round(stun),hits,face,size,hover}));
+      walked:short(walked),stun:Math.round(stun),hits,face,size,hover,weapon:weapon??undefined}));
   const save=()=>({v:2,actors:actors.map(({x,y,z,yaw,alerted,walked,waypoint,lastSeen,patrol,stun,hits})=>
     ({x,y,z,yaw,alerted,walked,waypoint,lastSeen,patrol,stun:Math.round(stun),hits}))});
   // Places where the world has to be loaded for creatures that are on the move.
   const hunters=()=>actors.filter(a=>a.stun<=0&&(a.alerted||a.mode==='track')).map(({x,z})=>({x,z}));
-  return {step,view,save,struck,wound,hunters,trail:()=>trail.map(({x,y,z})=>({x,y,z}))};
+  return {step,view,save,struck,wound,hunters,targets:()=>actors,trail:()=>trail.map(({x,y,z})=>({x,y,z}))};
 }

@@ -1,4 +1,4 @@
-import {GRID_STEP,TILE_SIZE,liquidAt,triangleLiquid} from './geography.js';
+import {GRID_STEP,TILE_SIZE,OCEAN,liquidAt,triangleLiquid} from './geography.js';
 import {cells} from './tiles.js';
 import {LAND,packColor,unpackColor,packSlope,unpackSlope,surfaceTriangle} from './surfaces.js';
 import {tunnelCuts} from './road-tunnels.js';
@@ -34,8 +34,21 @@ function removeTrench(points,[w,n,e,s]){
   return kept;
 }
 
+const liquidColor=liquid=>[0,2,4].map(i=>parseInt(liquid.color.slice(i,i+2),16)/255);
+function waterTriangle(out,a,b,c,color){
+  const u=b.map((n,i)=>n-a[i]),v=c.map((n,i)=>n-a[i]);
+  if(Math.abs(u[0]*v[2]-u[2]*v[0])>.00001)out.push(...a,...u,0,1,0,...v,...color,3);
+}
+
 export function terrainMesh(tile){
   const tris=[];
+  // The flat open sea needs two triangles for the entire 200 m tile.
+  if(tile.heights.every(height=>height===Math.round((OCEAN.level-8)*100))&&liquidAt(tile.x,tile.z,OCEAN.level-8)===OCEAN){
+    const {x,z}=tile,y=OCEAN.level,e=x+TILE_SIZE,s=z+TILE_SIZE,color=liquidColor(OCEAN);
+    waterTriangle(tris,[x,y,z],[x,y,s],[e,y,z],color);
+    waterTriangle(tris,[e,y,s],[e,y,z],[x,y,s],color);
+    return new Float32Array(tris);
+  }
   const stride=cells+1;
   const vertices=Array.from({length:stride**2},(_,n)=>{
     const position=[tile.x+(n%stride)*GRID_STEP,tile.heights[n]*.01,tile.z+Math.floor(n/stride)*GRID_STEP];
@@ -62,13 +75,9 @@ export function terrainMesh(tile){
         pool.push(shore);bank.push({position:shore,tint,normal:packSlope(nx,nz)});
       }
     }
-    const water=[0,2,4].map(i=>parseInt(liquid.color.slice(i,i+2),16)/255);
+    const water=liquidColor(liquid);
     for(let i=1;i<bank.length-1;i++)land(bank[0],bank[i],bank[i+1]);
-    for(let i=1;i<pool.length-1;i++){
-      const [a,b,c]=[pool[0],pool[i],pool[i+1]];
-      const u=b.map((n,j)=>n-a[j]),v=c.map((n,j)=>n-a[j]);
-      if(Math.abs(u[0]*v[2]-u[2]*v[0])>.00001)tris.push(...a,...u,0,1,0,...v,...water,3);
-    }
+    for(let i=1;i<pool.length-1;i++)waterTriangle(tris,pool[0],pool[i],pool[i+1],water);
   }
   function surface(a,b,c){
     if(!cuts.length){fill(a,b,c);return;}

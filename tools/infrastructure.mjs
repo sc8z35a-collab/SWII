@@ -4,7 +4,6 @@ import {stationEntry} from '../dist/metro.js';
 import {roadTunnels,tunnelPoint,tunnelFloor,tunnelRoof,TUNNEL_ASPHALT} from '../dist/road-tunnels.js';
 import {catmull,openTrench} from './layout.mjs';
 import {entryFoundation} from './building-sites.mjs';
-import {storefrontSign} from './neighborhood-buildings.mjs';
 
 export const protectedSite=(x,z,margin=0)=>airportZone(x,z,margin)||openTrench(x,z,margin)||
   metroStops.some(stop=>Math.hypot(x-stationEntry(stop)[0],z-stop.z)<6+margin);
@@ -102,79 +101,25 @@ export function buildRoadTunnels({shape,triangle,heightAt}){
   }
 }
 
-export function buildTransitSites({shape,drape,collision,heightAt},streets){
-  const box=(...args)=>shape('box',...args);
+export function buildTransitSites({drape}){
   for(const stop of metroStops){
-    const [x,z]=stationEntry(stop),y=heightAt(x,z);
+    const [x,z]=stationEntry(stop);
     patch(drape,x,z,10.8,8.0,'a5a79a',1,.205,'outside');
     if(stop.id!=='airport')patch(drape,(stop.x+x)*.5,z,Math.abs(x-stop.x),2.45,'adb0a4',1,.189,'outside');
-    box(x,y+3.22,z,9.4,.29,4.4,'49615e',25);
-    box(x,y+2.89,z,8.65,.078,.19,'e6d6a7',7);
-    for(const side of [-1,1]){
-      const post=x+side*4.15;
-      for(const offset of [-1.75,1.75]){
-        box(post,y+1.55,z+offset,.20,3.1,.20,'4a5b5b',25);
-        collision(post,z+offset,.24,.24);
-      }
-      box(post,y+1.24,z,.09,2.45,3.5,'779094',22);
-      collision(post,z,.10,3.51);
-    }
-    storefrontSign((a,h,b,w,H,d,t,mat)=>box(x+a,h,z+b,w,H,d,t,mat),'METRO',1,y+3.46,2.10,3.9,.68,'416d65');
   }
-  const {west,east,north,south,runway,terminal,elevation:y}=airport,[rx,rz]=runway,[tx,tz]=terminal;
+  const {west,east,north,runway,terminal}=airport,[rx,rz]=runway,[tx,tz]=terminal;
   patch(drape,rx,rz,east-west-22,48,'535c60',2,.14);
   for(let x=west+38;x<east-24;x+=40)patch(drape,x,rz,16,.35,'ede8dc',0,.188);
   for(const side of [-1,1]){
     patch(drape,rx,rz+side*22.2,east-west-35,.29,'e1dfd2',0,.174);
     const end=rx+side*(east-west)*.456;
     for(const stripe of [-1,1])for(let i=1;i<=5;i++)patch(drape,end,rz+stripe*i*2.32,27,1.04,'e1dfd2',0,.187);
-    for(let x=west+28;x<east-22;x+=31)box(x,y+.22,rz+side*25,.21,.17,.25,'e9ddbc',7);
   }
   patch(drape,tx,tz+46,265,66,'a5a5a0',12,.15);
-  for(const x of [tx-112,tx+112]){
+  for(const x of [tx-112,tx+112])
     patch(drape,x,(tz+rz)*.5+19,17,rz-tz-27,'747b7e',2,.162);
-    patch(drape,x,(tz+rz)*.5+19,.22,rz-tz-30,'e9bb58',0,.180);
-  }
   patch(drape,tx,north+3,201,9.5,'acaa9f',1,.196,'outside');
-  patch(drape,tx+107,tz+19,6.2,103,'b2b1a7',1,.19);
-  patch(drape,tx-106,tz+12,5.8,88,'b2b1a7',1,.195);
-  const [wx,wz]=airport.watch;
-  patch(drape,wx,wz,17,10,'b8b7aa',1,.196);
-  patch(drape,(wx+tx-106)*.5,wz,tx-106-wx,3.2,'b8b7aa',1,.193);
-  for(const [x,w,d,h] of [[tx,76,34,13],[tx-63,49,29,10],[tx+63,49,29,10]]){
-    box(x,y+h-.28,tz,w+.42,.58,d+.52,'a9b3b4',25);
-    box(x,y+.28,tz,w,.56,d,'a0a5a0',23);
-    box(x,y+h*.50,tz+d*.5,w,h-.98,.27,'516d7b',19);collision(x,tz+d*.5,w,.31);
-    for(const side of [-1,1]){
-      box(x+side*w*.5,y+h*.5,tz,.37,h,d,'a0a6a3',12);collision(x+side*w*.5,tz,.39,d);
-    }
-    const front=tz-d*.5,sections=Math.round(w/5),unit=w/sections;
-    for(let i=0;i<sections;i++){
-      const u=x+w*((i+.5)/sections-.5);
-      if(i!==Math.floor(sections/2)){
-        box(u,y+h*.49,front,unit-.15,h-.91,.20,'678891',19);collision(u,front,unit-.15,.27);
-      }else box(u,y+h*.66,front,unit-.16,h*.61,.21,'5d7b88',19);
-      box(u-unit*.5,y+h*.48,front-.15,.16,h-.67,.24,'b4bdbc',25);
-    }
-    box(x,y+3.97,front-2.3,w*.89,.31,4.9,'9fa9ac',25);
-    box(x,y+3.80,front-3.3,w*.73,.085,.17,'eadbb3',7);
-    for(const a of [-w*.29,w*.29])box(x+a,y+3.05,tz,4.1,.15,d*.73,'f1ddaa',7);
-  }
-  storefrontSign((a,h,b,w,H,d,t,mat)=>box(tx+a,h,tz-17-b,w,H,d,t,mat),'ATLANTIS',-1,y+7.9,.20,22,2.0,'446068');
-  const cx=tx+176,cz=tz+47;
-  box(cx,y+13.5,cz,5.8,27,5.8,'b8b4a9',12);collision(cx,cz,6.2,6.2);
-  shape('chamfer',cx,y+27.7,cz,10.5,1.5,10.5,'a6a39b',18);
-  shape('chamfer',cx,y+29.6,cz,9.5,3.45,9.5,'68848e',19);
-  shape('chamfer',cx,y+31.50,cz,10,.39,10,'b0b4ae',25);
-  box(cx,y+33.3,cz,.17,3.3,.17,'626c6d',25);
-  for(const x of [tx-254,tx+298]){
-    box(x,y+5.2,tz+23,62,10.4,47,'8b9293',12);collision(x,tz+23,62,47);
-    shape('roof',x,y+11.55,tz+23,62.5,2.3,48,'667579',25);
-    box(x,y+3.93,tz+47,49,7.8,.65,'626e71',25);
-  }
-  for(let x=west+24;x<east-18;x+=13)box(x,y+1.13,south-2.7,.16,2.26,.16,'798683',25);
-  box(rx,y+1.98,south-2.7,east-west-38,.068,.074,'788582',25);
-  for(let i=0;i<9;i++)streets.light(tx-102+i*25,north+.42,0,-1,'tokyo');
+  patch(drape,...airport.watch,10.8,8,'a5a79a',1,.192);
 }
 
 export function buildParkingLot(plot,geometry,streets){

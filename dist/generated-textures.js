@@ -1,3 +1,4 @@
+import {METRO_COLUMN,metroMaterial,metroSheets} from './metro-materials.js';
 // Image-generated surface textures made by the gpt-image-textures skill. Each sheet is a WebP atlas
 // with a 3x3 grid of seamless textures, and materials/generated/manifest.json lists which world
 // materials use them. Without a manifest the procedural surfaces are used as before.
@@ -7,7 +8,7 @@ export const ART_COLUMN=64,ART_GROUPS=4,RUG_COLUMN=68,CURTAIN_COLUMN=69,BLINDS_C
 // Special places (catalog "uses", or an "art" kind) and, from column 128, the surfaces of furnished
 // rooms by material id (catalog "rooms").
 export const PLACE_COLUMNS={rug:68,curtain:69,blinds:70,bark:71,ceiling:72,'office-floor':73,tactile:74,curb:75,'flat-roof':76,platform:77,
-  'tower-red':78,'tower-white':79,'vermilion':80,'warning':81,'rust-concrete':82,'track':83,'tunnel-lining':84,'runway':85,'runway-marks':86,'pole':87,'guardrail':88,'manhole':89,'train-body':90,'train-seat':91,'car-paint':92,'tire':93,'car-seat':94,'car-trim':95,'chrome':96,'headlight':97,'fabric-top':98,'fabric-bottom':99,'shoe':100,'skin':101,'hair':102,'glass-distant':103,'frosted':104,'smoke':105,'fire':106,'dust':107,'sparks':108,'ripples':109};
+  'tower-red':78,'tower-white':79,'vermilion':80,'warning':81,'rust-concrete':82,'track':83,'tunnel-lining':84,'runway':85,'runway-marks':86,'pole':87,'guardrail':88,'manhole':89,'train-body':90,'train-seat':91,'car-paint':92,'tire':93,'car-seat':94,'car-trim':95,'chrome':96,'headlight':97,'fabric-top':98,'fabric-bottom':99,'shoe':100,'skin':101,'hair':102,'glass-distant':103,'frosted':104,'smoke':105,'fire':106,'dust':107,'sparks':108,'ripples':109,...Object.fromEntries(Object.keys(metroMaterial).map((id,i)=>['metro:'+id,METRO_COLUMN+i]))};
 export const ROOM_COLUMN=128;
 const LAST_COLUMN=ROOM_COLUMN+PHOTO_MATERIALS-1;
 
@@ -58,47 +59,79 @@ export function buildPhotoTable(manifest){
 // Cuts a cell out of an atlas at the requested size. createImageBitmap does it in one step where
 // its crop and resize options work; otherwise the cell is drawn through a canvas.
 async function cutCell(atlas,cell,grid,tile){
-  const size=atlas.width/grid,x=(cell%grid)*size,y=Math.floor(cell/grid)*size;
+  const size=atlas.width/grid,col=cell%grid,row=Math.floor(cell/grid);
+  const x=Math.round(col*size),y=Math.round(row*size);
+  const width=Math.round((col+1)*size)-x,height=Math.round((row+1)*size)-y;
   try{
-    const bitmap=await createImageBitmap(atlas,x,y,size,size,{resizeWidth:tile,resizeHeight:tile,resizeQuality:'high'});
+    const bitmap=await createImageBitmap(atlas,x,y,width,height,{resizeWidth:tile,resizeHeight:tile,resizeQuality:'high'});
     if(bitmap.width===tile&&bitmap.height===tile)return bitmap;
     bitmap.close?.();
   }catch{}
   const canvas=typeof OffscreenCanvas==='function'?new OffscreenCanvas(tile,tile):Object.assign(document.createElement('canvas'),{width:tile,height:tile});
   const context=canvas.getContext('2d');
   context.imageSmoothingQuality='high';
-  context.drawImage(atlas,x,y,size,size,0,0,tile,tile);
+  context.drawImage(atlas,x,y,width,height,0,0,tile,tile);
   return createImageBitmap(canvas);
 }
 
 // Returns {tile, layers, table, count} for renderer.setPhotoTextures, or null when no textures have
 // been generated or the browser cannot decode them.
-export async function loadGeneratedTextures({tile=384,signal}={}){
+export async function loadGeneratedTextures({tile=384,signal,metroOnly=false}={}){
   const base=new URL('./materials/generated/',import.meta.url);
-  let manifest;
-  try{
+  let manifest={version:1,grid:3,sheets:[]};
+  if(!metroOnly)try{
     const response=await fetch(new URL('manifest.json',base),{signal,cache:'no-cache'});
     if(!response.ok)return null;
     manifest=await response.json();
   }catch{return null;}
-  if(manifest?.version!==1||!Array.isArray(manifest.sheets)||!manifest.sheets.length)return null;
+  if(manifest?.version!==1||!Array.isArray(manifest.sheets))return null;
   if(typeof createImageBitmap!=='function')return null;
-  const {table,slots}=buildPhotoTable(manifest);
-  const grid=manifest.grid??3,layers=[];
-  const atlases=new Map();
-  try{
-    for(const sheet of manifest.sheets){
+  const layers=[],sheets=[];
+  const sources=[...manifest.sheets,...metroSheets];
+  async function readSheet(sheet,optional){
+    const cells=[];
+    let atlas;
+    try{
       const response=await fetch(new URL(sheet.file,base),{signal});
       if(!response.ok)throw Error('Missing texture sheet '+sheet.file);
-      atlases.set(sheet.file,await createImageBitmap(await response.blob()));
+      atlas=await createImageBitmap(await response.blob());
+      const grid=optional?3:manifest.grid??3;
+      if(atlas.width!==atlas.height||atlas.width<grid)throw Error('Invalid atlas '+sheet.file);
+      for(let cell=0;cell<(sheet.slots?.length??0);cell++){
+        signal?.throwIfAborted();
+        cells.push(await cutCell(atlas,cell,grid,tile));
+      }
+      return {sheet,cells};
+    }catch(error){
+      for(const cell of cells)cell.close?.();
+      if(!optional||signal?.aborted)throw error;
+      return null;
+    }finally{
+      atlas?.close?.();
     }
-    for(const slot of slots)layers.push(await cutCell(atlases.get(slot.sheet),slot.cell,grid,tile));
+  }
+  try{
+    // Bound the decoded source images in memory, while overlapping downloads and cutting.
+    for(let start=0;start<sources.length&&layers.length<PHOTO_TABLE_WIDTH;start+=2){
+      const results=await Promise.allSettled(sources.slice(start,start+2).map((sheet,i)=>
+        readSheet(sheet,start+i>=manifest.sheets.length)));
+      for(const result of results){
+        if(result.status!=='fulfilled'||!result.value)continue;
+        const {sheet,cells}=result.value;
+        sheets.push(sheet);
+        for(const cell of cells){
+          if(layers.length<PHOTO_TABLE_WIDTH)layers.push(cell);
+          else cell.close?.();
+        }
+      }
+      const failed=results.find(result=>result.status==='rejected');
+      if(failed)throw failed.reason;
+    }
+    const {table}=buildPhotoTable({sheets});
+    return layers.length?{tile,layers,table,count:layers.length}:null;
   }catch(error){
     for(const layer of layers)layer.close?.();
-    console.info('Generated textures unavailable',error.message);
+    if(!signal?.aborted)console.info('Generated textures unavailable',error.message);
     return null;
-  }finally{
-    for(const atlas of atlases.values())atlas.close?.();
   }
-  return {tile,layers,table,count:layers.length};
 }

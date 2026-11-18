@@ -122,13 +122,13 @@ test('two tabs saving separate changes keep both the stamp and the photo',async 
   const writes=await Promise.all([
     writeProgress(storage,current=>({stamps:{...current.stamps,paris:['seine']}}),locks),
     writeProgress(storage,current=>({photos:[{city:'tokyo',image:PHOTO_PREFIX+'YWJjZA=='},...current.photos]}),locks),
-    writeProgress(storage,()=>({quality:'low'}),locks)
+    writeProgress(storage,()=>({shadows:false}),locks)
   ]);
   assert.ok(writes.every(Boolean));
   const saved=readProgress(storage);
   assert.deepEqual(saved.stamps.paris,['seine']);
   assert.equal(saved.photos[0].city,'tokyo');
-  assert.equal(saved.quality,'low');
+  assert.equal(saved.shadows,false);
 });
 
 test('a map image retries after an error and redraws on recovery',t=>{

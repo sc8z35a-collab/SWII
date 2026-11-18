@@ -362,16 +362,18 @@ void main(){
 
 // compileProgram comes from gl-program.js: programs start compiling here and are resolved on first
 // use, or earlier by the renderer, so the driver can build them alongside the scene shaders.
-export function createPost(gl,{floatColor,compileProgram}){
-  const programs={
-    ssao:compileProgram(gl,fullscreen,ssaoFragment),
-    aoBlur:compileProgram(gl,fullscreen,aoBlurFragment),
-    resolve:compileProgram(gl,fullscreen,resolveFragment),
-    down:compileProgram(gl,fullscreen,downsampleFragment),
-    up:compileProgram(gl,fullscreen,upsampleFragment),
-    final:compileProgram(gl,finalVertex,finalFragment),
-    adapt:compileProgram(gl,fullscreen,adaptFragment)
-  };
+export function createPost(gl,{floatColor,ambientOcclusion=true,compileProgram}){
+  const programs={final:compileProgram(gl,finalVertex,finalFragment)};
+  if(floatColor){
+    programs.resolve=compileProgram(gl,fullscreen,resolveFragment);
+    programs.down=compileProgram(gl,fullscreen,downsampleFragment);
+    programs.up=compileProgram(gl,fullscreen,upsampleFragment);
+    programs.adapt=compileProgram(gl,fullscreen,adaptFragment);
+    if(ambientOcclusion){
+      programs.ssao=compileProgram(gl,fullscreen,ssaoFragment);
+      programs.aoBlur=compileProgram(gl,fullscreen,aoBlurFragment);
+    }
+  }
   const vao=gl.createVertexArray();
   // Eye adaptation needs a float target for the running average; 8-bit output keeps a fixed exposure.
   // The targets are made on first use: a completeness check would wait for the shader compiles.
@@ -386,7 +388,9 @@ export function createPost(gl,{floatColor,compileProgram}){
     gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.COLOR_ATTACHMENT0,gl.TEXTURE_2D,texture,0);
     const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-    return ok?{texture,framebuffer}:null;
+    if(ok)return {texture,framebuffer};
+    gl.deleteFramebuffer(framebuffer);gl.deleteTexture(texture);
+    return null;
   }):[];
   let adaptReady=false,adaptIndex=0,adaptValid=false,adaptTime=null;
   const hdr=floatColor?{internal:gl.RGBA16F,format:gl.RGBA,type:gl.HALF_FLOAT}:{internal:gl.RGBA8,format:gl.RGBA,type:gl.UNSIGNED_BYTE};
@@ -410,7 +414,7 @@ export function createPost(gl,{floatColor,compileProgram}){
     if(depth)gl.framebufferTexture2D(gl.FRAMEBUFFER,gl.DEPTH_ATTACHMENT,gl.TEXTURE_2D,depth,0);
     const ok=gl.checkFramebufferStatus(gl.FRAMEBUFFER)===gl.FRAMEBUFFER_COMPLETE;
     gl.bindFramebuffer(gl.FRAMEBUFFER,null);
-    if(!ok)throw Error('Incomplete framebuffer');
+    if(!ok){gl.deleteFramebuffer(f);throw Error('Incomplete framebuffer');}
     return f;
   }
   function release(){
@@ -420,11 +424,13 @@ export function createPost(gl,{floatColor,compileProgram}){
     targets=null;
   }
   function resize(w,h){
-    if(targets&&size[0]===w&&size[1]===h)return;
+    if(targets?.scene&&size[0]===w&&size[1]===h)return;
     release();
     size=[w,h];
     const textures=[],framebuffers=[],keep=t=>(textures.push(t),t),fb=(...a)=>{const f=framebuffer(...a);framebuffers.push(f);return f;};
-    const color=keep(texture(w,h,hdr,gl.NEAREST));
+    // Own partial allocations too, so an incomplete HDR target can be released on fallback.
+    targets={textures,framebuffers};
+    const color=keep(texture(w,h,hdr,floatColor?gl.NEAREST:gl.LINEAR));
     const depth=keep(gl.createTexture());
     gl.bindTexture(gl.TEXTURE_2D,depth);
     gl.texStorage2D(gl.TEXTURE_2D,1,gl.DEPTH_COMPONENT24,w,h);
@@ -433,14 +439,13 @@ export function createPost(gl,{floatColor,compileProgram}){
     const scene=fb(color,depth);
     const half=[Math.max(1,w>>1),Math.max(1,h>>1)];
     const aoFormat={internal:gl.R8,format:gl.RED,type:gl.UNSIGNED_BYTE};
-    const ao=[keep(texture(...half,aoFormat)),keep(texture(...half,aoFormat))];
+    const ao=programs.ssao?[keep(texture(...half,aoFormat)),keep(texture(...half,aoFormat))]:[];
     const aoTargets=ao.map(t=>fb(t));
-    const historyFormat=floatColor?{internal:gl.RGBA16F,format:gl.RGBA,type:gl.HALF_FLOAT}:hdr;
-    const history=[keep(texture(w,h,historyFormat)),keep(texture(w,h,historyFormat))];
+    const history=floatColor?[keep(texture(w,h,hdr)),keep(texture(w,h,hdr))]:[];
     const historyTargets=history.map(t=>fb(t));
     const bloom=[];
     let bw=w,bh=h;
-    for(let i=0;i<6;i++){
+    for(let i=0;floatColor&&i<6;i++){
       bw=Math.max(1,bw>>1);bh=Math.max(1,bh>>1);
       if(Math.min(bw,bh)<4)break;
       const t=keep(texture(bw,bh,bloomFormat));
@@ -489,23 +494,27 @@ export function createPost(gl,{floatColor,compileProgram}){
       aoTexture=ao[1];
     }
     // Resolve: occlusion is applied to the ambient share stored in alpha, then history is blended.
-    const useHistory=o.taa&&historyValid&&!o.reset;
-    const write=historyIndex^1;
-    const r=programs.resolve;
-    pass(r,historyTargets[write],w,h);
-    gl.uniform1i(r.u.Color,bind(0,color));
-    gl.uniform1i(r.u.Depth,bind(1,depth));
-    gl.uniform1i(r.u.History,bind(2,history[historyIndex]));
-    gl.uniform1i(r.u.AO,bind(3,aoTexture??ao[0]));
-    gl.uniformMatrix4fv(r.u.Reproject,false,o.reproject);
-    gl.uniform2f(r.u.Texel,1/w,1/h);
-    gl.uniform1f(r.u.Reset,o.reset?1:0);
-    gl.uniform1f(r.u.UseAO,aoTexture?1:0);
-    gl.uniform1f(r.u.UseHistory,useHistory?1:0);
-    gl.uniform1f(r.u.Encoded,floatColor?0:1);
-    draw();
-    historyIndex=write;historyValid=o.taa;
-    const resolved=history[historyIndex];
+    // In SDR the scene is already in the encoding sampled by FXAA.
+    let resolved=color;
+    if(floatColor){
+      const useHistory=o.taa&&historyValid&&!o.reset;
+      const write=historyIndex^1;
+      const r=programs.resolve;
+      pass(r,historyTargets[write],w,h);
+      gl.uniform1i(r.u.Color,bind(0,color));
+      gl.uniform1i(r.u.Depth,bind(1,depth));
+      gl.uniform1i(r.u.History,bind(2,history[historyIndex]));
+      gl.uniform1i(r.u.AO,bind(3,aoTexture??color));
+      gl.uniformMatrix4fv(r.u.Reproject,false,o.reproject);
+      gl.uniform2f(r.u.Texel,1/w,1/h);
+      gl.uniform1f(r.u.Reset,o.reset?1:0);
+      gl.uniform1f(r.u.UseAO,aoTexture?1:0);
+      gl.uniform1f(r.u.UseHistory,useHistory?1:0);
+      gl.uniform1f(r.u.Encoded,floatColor?0:1);
+      draw();
+      historyIndex=write;historyValid=o.taa;
+      resolved=history[historyIndex];
+    }
     if(o.bloom&&bloom.length){
       const d=programs.down;
       let source=resolved,sw=w,sh=h;
@@ -529,7 +538,7 @@ export function createPost(gl,{floatColor,compileProgram}){
       }
       gl.disable(gl.BLEND);
     }
-    const adapted=adapt(resolved,o);
+    const adapted=floatColor?adapt(resolved,o):null;
     const f=programs.final;
     pass(f,null,o.outputWidth,o.outputHeight);
     gl.uniform1i(f.u.Color,bind(0,resolved));

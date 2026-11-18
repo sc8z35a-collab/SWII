@@ -83,6 +83,17 @@ export function rasterizer(){
           pixels[i]=(Math.round(mixed*255)<<24)|Math.round((blendR+(dest&255)*keep)/mixed)|
             (Math.round((blendG+((dest>>>8)&255)*keep)/mixed)<<8)|(Math.round((blendB+((dest>>>16)&255)*keep)/mixed)<<16);
         }
+      }else if(texture&&surface.brightness!==undefined){
+        const brightness=surface.brightness;
+        let u=a[uSlot]+(left+.5-ax)*uX+(sy-ay)*uY;
+        let v=a[vSlot]+(left+.5-ax)*vX+(sy-ay)*vY;
+        for(let i=row+left;i<row+right;i++,inv+=zX,u+=uX,v+=vX){
+          if(inv<depth[i])continue;
+          visible=true;depth[i]=inv;
+          const scale=size/inv,at=(((Math.floor(v*scale)&mask)*size)+(Math.floor(u*scale)&mask))*4;
+          pixels[i]=0xff000000|clampByte(brightness*texture[at])|
+            (clampByte(brightness*texture[at+1])<<8)|(clampByte(brightness*texture[at+2])<<16);
+        }
       }else if(texture){
         let u=a[uSlot]+(left+.5-ax)*uX+(sy-ay)*uY;
         let v=a[vSlot]+(left+.5-ax)*vX+(sy-ay)*vY;
@@ -93,8 +104,14 @@ export function rasterizer(){
           if(inv<depth[i])continue;
           visible=true;depth[i]=inv;
           const z=1/inv,at=(((Math.floor(v*z*size)&mask)*size)+(Math.floor(u*z*size)&mask))*4;
-          const albedo=.50+texture[at]*.00372,warm=(texture[at+3]-128)*.00074;
           const gain=smooth?z*255:1;
+          if(surface.map.rgb){
+            const exposure=gain/255;
+            pixels[i]=0xff000000|clampByte(red*exposure*texture[at])|
+              (clampByte(green*exposure*texture[at+1])<<8)|(clampByte(blue*exposure*texture[at+2])<<16);
+            continue;
+          }
+          const albedo=.50+texture[at]*.00372,warm=(texture[at+3]-128)*.00074;
           pixels[i]=0xff000000|clampByte(red*gain*albedo*(1+warm))|
             (clampByte(green*gain*albedo)<<8)|(clampByte(blue*gain*albedo*(1-warm*.75))<<16);
         }
@@ -118,9 +135,9 @@ export function rasterizer(){
     }
     return visible;
   }
-  function fill(points,color,alpha=1,bias=0,texture=null){
+  function fill(points,color,alpha=1,bias=0,texture=null,brightness){
     let visible=false;
-    const surface=texture&&{mipmaps:texture,map:null};
+    const surface=texture&&{mipmaps:texture,map:null,brightness};
     for(let i=1;i<points.length-1;i++)visible=triangle(points[0],points[i],points[i+1],color,alpha,bias,0,surface)||visible;
     return visible;
   }

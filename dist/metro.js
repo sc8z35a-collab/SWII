@@ -28,9 +28,6 @@ export function stationSupport(id,x,z){
   const a=x-station.x,b=z-station.z,[dx,dz]=station.tangent;
   const along=a*dx+b*dz,side=b*dx-a*dz;
   if(Math.abs(along)>=hallLength*.5-.45||side<=1.94||side>=7.74)return null;
-  const post=Math.round(along/9)*9,bench=Math.round((along-.87)/18)*18+.87;
-  if(side>6.34&&Math.abs(post)<=45&&Math.abs(along-post)<.61)return null;
-  if(side>5.50&&side<7.30&&Math.abs(bench)<46&&Math.abs(along-bench)<1.80)return null;
   return platformY;
 }
 function makeLeg(from,to){

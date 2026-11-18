@@ -1,66 +1,60 @@
-import {metroLegs,stations,railPose,platformY,trackY,hallLength} from './metro.js';
+import {metroLegs,railPose,platformY,trackY,hallLength} from './metro.js';
 import {distanceToBounds,skylineBatches} from './mesh-batches.js';
-import {meshFrame,meshTriangle} from './moving-models.js';
+import {metroMaterial as m,metroQuad} from './metro-materials.js';
 
 export const undergroundLight={
   horizon:[.075,.091,.094],zenith:[.092,.113,.118],sun:[.12,.976,.18],night:.20,haze:.0075,ocean:0
 };
-const stationHalf=hallLength*.5;
+const stationHalf=hallLength*.5,platformEdge=1.85;
 let batches;
 function createMetroScene(){
   const meshes={};
-  const quad=(a,b,c,d,paint,material)=>{
-    meshTriangle(meshes,a,c,b,paint,material);meshTriangle(meshes,a,d,c,paint,material);
-  };
-  function section(leg,d){
-    const pose=railPose(leg,d),s=Math.min(d,leg.length-d);
-    const expansion=Math.max(0,Math.min(1,(stationHalf+6-s)/6));
-    return {width:2.38+5.75*expansion,roof:trackY+5.25+.65*expansion,
-      point:(across,y)=>[pose.x-pose.dz*across,y,pose.z+pose.dx*across]};
-  }
   for(const leg of metroLegs){
-    const count=Math.ceil((leg.length-2*stationHalf)/9);
-    const cuts=[0,stationHalf,stationHalf+6,...Array.from({length:count-1},(_,i)=>
-      stationHalf+6+(leg.length-2*stationHalf-12)*(i+1)/count),leg.length-stationHalf-6,leg.length-stationHalf,leg.length];
+    const section=(d)=>{
+      const pose=railPose(leg,d),s=Math.min(d,leg.length-d);
+      const expansion=Math.max(0,Math.min(1,(stationHalf+6-s)/6));
+      return {width:2.38+5.75*expansion,roof:trackY+5.25+.65*expansion,pose,
+        point:(across,y)=>[pose.x-pose.dz*across,y,pose.z+pose.dx*across]};
+    };
+    const draw=(first,last,a,b)=>{
+      const length=last-first,middle=(first+last)*.5,c=section(middle);
+      if(length>8&&Math.hypot(c.pose.x-(a.pose.x+b.pose.x)*.5,c.pose.z-(a.pose.z+b.pose.z)*.5)>.24){
+        draw(first,middle,a,c);draw(middle,last,c,b);
+        return;
+      }
+      const hall=Math.min(middle,leg.length-middle)<stationHalf;
+      const floor=trackY-.18,l=-2.38;
+      const ground=(leftA,leftB,rightA,rightB,yA,yB,material,tileLength,flip)=>metroQuad(meshes,
+        [b.point(leftB,yB),b.point(rightB,yB),a.point(rightA,yA),a.point(leftA,yA)],material,{v:length/tileLength,flip});
+      const wall=(xA,xB,lowA,lowB,highA,highB,material,flip)=>metroQuad(meshes,
+        [a.point(xA,highA),b.point(xB,highB),b.point(xB,lowB),a.point(xA,lowA)],material,{u:length/8,flip});
+      ground(l,l,a.width,b.width,floor,floor,m.walkway,6,true);
+      ground(-1.28,-1.28,1.28,1.28,trackY+.045,trackY+.045,m.track,5,true);
+      ground(l,l,hall?platformEdge:a.width,hall?platformEdge:b.width,a.roof,b.roof,m.tunnelCeiling,10,false);
+      wall(l,l,floor,floor,a.roof,b.roof,m.tunnelWall,true);
+      wall(a.width,b.width,hall?platformY:floor,hall?platformY:floor,a.roof,b.roof,
+        hall?m.platformWall:m.tunnelWall,false);
+      if(hall){
+        ground(platformEdge,platformEdge,a.width,b.width,platformY,platformY,m.platformFloor,7,true);
+        ground(platformEdge,platformEdge,a.width,b.width,a.roof,b.roof,m.platformCeiling,8,false);
+        wall(platformEdge,platformEdge,floor,floor,platformY,platformY,m.platformEdge,false);
+      }
+    };
+    const cuts=[0,stationHalf,stationHalf+6];
+    for(let d=stationHalf+36;d<leg.length-stationHalf-6;d+=30)cuts.push(d);
+    cuts.push(leg.length-stationHalf-6,leg.length-stationHalf,leg.length);
+    // Split long platform runs as well so their lighting and station wall repeat at a consistent size.
     for(let i=1;i<cuts.length;i++){
-      const first=cuts[i-1],last=cuts[i],a=section(leg,first),b=section(leg,last);
-      const l=-2.38,r0=a.width,r1=b.width,floor=trackY-.18;
-      quad(a.point(l,floor),b.point(l,floor),b.point(r1,floor),a.point(r0,floor),'565956',12);
-      quad(a.point(r0,a.roof),b.point(r1,b.roof),b.point(l,b.roof),a.point(l,a.roof),'888984',12);
-      quad(a.point(l,floor),a.point(l,a.roof),b.point(l,b.roof),b.point(l,floor),'8a8c86',12);
-      quad(a.point(r0,floor),b.point(r1,floor),b.point(r1,b.roof),a.point(r0,a.roof),'8c9189',12);
-      for(const side of [-.745,.745]){
-        quad(a.point(side-.037,trackY+.096),b.point(side-.037,trackY+.096),
-          b.point(side+.037,trackY+.096),a.point(side+.037,trackY+.096),'9caaa9',25);
-      }
-      const {part}=meshFrame(meshes,railPose(leg,(first+last)*.5));
-      // The track bed: ballast and sleepers come from the track photo along the rails.
-      part('box',0,.035,0,2.4,.05,last-first+.04,'5e5d58',12);
-      part('box',-1.56,4.92,0,.13,.073,Math.min(4,last-first),'ede0b9',7);
-      part('box',-2.24,1.15,0,.08,.063,last-first+.05,'636e66',25);
-    }
-
-  }
-  for(const station of stations){
-    const [dx,dz]=station.tangent,yaw=Math.atan2(dx,-dz);
-    const {part}=meshFrame(meshes,{x:station.x,y:platformY,z:station.z,yaw});
-    part('box',4.95,-.66,0,6.20,1.32,hallLength,'9f9b90',23);
-    part('box',2.027,.027,0,.24,.053,hallLength-.18,'c7ae69',1);
-    part('box',7.68,.045,0,.33,.096,hallLength-.18,'759388',23);
-    for(let n=-45;n<=45;n+=9){
-      part('box',6.87,2.29,n,.43,4.58,.52,'b3b1a8',18);
-      part('box',4.96,4.42,n,3.95,.11,.51,'a6aaa4',25);
-      part('box',4.96,4.328,n,3.70,.10,.33,'f3e6c4',7);
-      part('box',7.61,2.41,n+.87,.25,1.25,4.50,'63857a',25);
-      part('box',7.45,2.76,n+.87,.094,.37,4.18,'d8ddc7',7);
-      if(n%18===0){
-        part('box',6.40,.48,n+.87,1.02,.19,2.88,'6b8275',24);
-        part('box',6.82,.87,n+.87,.14,.62,2.88,'647e70',24);
+      const count=Math.ceil((cuts[i]-cuts[i-1])/30);
+      for(let j=0;j<count;j++){
+        const first=cuts[i-1]+(cuts[i]-cuts[i-1])*j/count,last=cuts[i-1]+(cuts[i]-cuts[i-1])*(j+1)/count;
+        draw(first,last,section(first),section(last));
       }
     }
-    for(const end of [-1,1]){
-      part('box',5.13,1.44,end*(stationHalf-.18),5.80,2.88,.24,'8a9790',12);
-      part('box',3.18,2.34,end*(stationHalf-.34),1.82,.34,.18,'b2c8aa',7);
+    for(const end of [stationHalf,leg.length-stationHalf]){
+      const a=section(end);
+      metroQuad(meshes,[a.point(platformEdge+.05,a.roof),a.point(a.width,a.roof),
+        a.point(a.width,platformY),a.point(platformEdge+.05,platformY)],m.platformEnd,{flip:end<leg.length*.5});
     }
   }
   return skylineBatches(meshes);

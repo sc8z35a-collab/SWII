@@ -9,6 +9,7 @@ import {KIND_IDS,depthFragment,skyFragment,skyVertex,worldFragment,worldVertex} 
 import {createActorRenderer} from './actor-renderer.js';
 import {rad,normalize as unit,vectorCross as cross} from './vector.js';
 import {compileProgram,whenCompiled} from './gl-program.js';
+import {resolutionLines} from './progress.js';
 import {PHOTO_TABLE_ROWS,PHOTO_TABLE_WIDTH} from './generated-textures.js';
 export {rad};
 const dot=(a,b)=>a.reduce((n,v,i)=>n+v*b[i],0);
@@ -20,7 +21,10 @@ function product(a,b){
   return new Float32Array(b.map((_,i)=>a[i%4]*b[i-i%4]+a[i%4+4]*b[i-i%4+1]+a[i%4+8]*b[i-i%4+2]+a[i%4+12]*b[i-i%4+3]));
 }
 const NEAR=.12,FAR=1220,FOV=61*rad;
-export const LIGHT_LINES=400;
+export function displaySize(width,height,resolution){
+  const lines=resolutionLines[resolution]??resolutionLines.fhd;
+  return [Math.max(1,Math.round(width*lines/Math.max(1,height))),lines];
+}
 function perspective(ratio,fov=FOV){
   const k=1/Math.tan(fov/2);
   return [k/ratio,0,0,0,0,k,0,0,0,0,(NEAR+FAR)/(NEAR-FAR),-1,0,0,2*NEAR*FAR/(NEAR-FAR),0];
@@ -113,8 +117,10 @@ void main(){
   vec2 p=vec2((gl_VertexID<<1)&2,gl_VertexID&2);
   gl_Position=vec4(p*2.-1.,0.,1.);
 }`;
+const halfFloat=new Float32Array(1),halfBits=new Uint32Array(halfFloat.buffer);
 function toHalf(value){
-  const f=new Float32Array([value]),i=new Uint32Array(f.buffer)[0];
+  halfFloat[0]=value;
+  const i=halfBits[0];
   const sign=(i>>>16)&0x8000,exponent=((i>>>23)&0xff)-112,mantissa=i&0x7fffff;
   if(exponent<=0)return sign;
   if(exponent>=31)return sign|0x7c00;
@@ -129,21 +135,21 @@ const undergroundModel=light=>{
 };
 
 // With wait:false the shaders compile in the background; await renderer.ready before rendering.
-export function createRenderer(canvas,{wait=true}={}){
+export function createRenderer(canvas,{wait=true,hdr=true}={}){
   const gl=canvas.getContext('webgl2',{alpha:false,antialias:false,depth:false,stencil:false,powerPreference:'high-performance'});
   if(!gl)throw Error('WebGL 2 unavailable');
   // Lets drivers build the programs on worker threads and report progress without blocking.
   gl.getExtension('KHR_parallel_shader_compile');
   // floatColor: the scene is rendered in HDR (16-bit float); hdrCapable: the device can.
   const hdrCapable=!!gl.getExtension('EXT_color_buffer_float');
-  let floatColor=hdrCapable;
+  let floatColor=hdrCapable&&hdr;
   const anisotropic=gl.getExtension('EXT_texture_filter_anisotropic');
   const mobile=matchMedia('(pointer:coarse)').matches;
   const main=compileProgram(gl,worldVertex,worldFragment);
   const depth=compileProgram(gl,worldVertex,depthFragment);
   const skies=compileProgram(gl,skyVertex,skyFragment);
   const skyLut=compileProgram(gl,fullscreenVertex,skyLutFragment);
-  let post=createPost(gl,{floatColor,compileProgram});
+  let post=createPost(gl,{floatColor,ambientOcclusion:!mobile,compileProgram});
   // Detailed actors are optional: without them the primitive figures are drawn instead.
   const noActors={ready:false,programs:[],update(){},draw(){},drawShadows(){}};
   let actors;
@@ -246,9 +252,10 @@ export function createRenderer(canvas,{wait=true}={}){
   gl.activeTexture(gl.TEXTURE0);
   let paneData=new Float32Array(0);
   let scene=[],sceneSet=new Set(),residentBytes=0,renderedFrames=0,detailRadius=227,viewRadius=435;
-  let quality='auto',autoScale=1,previousWalkers;
+  let previousWalkers,orderedScene=[],orderedX,orderedZ;
+  let hasGlass=false;
   let flash=new Float32Array(4),flashColor=[1,.6,.3];
-  let resolution='auto',reflections=true;
+  let resolution='fhd',reflections=true,showShadows=true;
   let shadowBuffer=null,shadowUnsupported=false,shadowDirty=true;
   const cascades=[{range:38,snap:4,key:'',last:-Infinity,matrix:null,planes:null},{range:205,snap:40,key:'',last:-Infinity,matrix:null,planes:null}];
   let skyKey='',model=null,modelTime=-Infinity,lutDirty=true;
@@ -311,6 +318,8 @@ export function createRenderer(canvas,{wait=true}={}){
 
   function load(batches,range,radius=435){
     scene=batches;
+    orderedX=undefined;
+    hasGlass=batches.some(batch=>batch.ranges.some(range=>range.kind==='pane'));
     sceneSet=new Set(batches);
     detailRadius=range;
     viewRadius=radius;
@@ -379,6 +388,12 @@ export function createRenderer(canvas,{wait=true}={}){
       photoTexture=job.texture;photoUpload=null;photoReady=true;
     }
     gl.activeTexture(gl.TEXTURE0);
+  }
+
+  function discardPhotoUpload(){
+    for(const image of photoUpload.layers)image?.close?.();
+    gl.deleteFramebuffer(photoUpload.read);gl.deleteFramebuffer(photoUpload.draw);
+    gl.deleteTexture(photoUpload.texture);photoUpload=null;
   }
 
   // Halves one layer down its mip chain with linear blits (level n to n + 1 of the same layer).
@@ -550,7 +565,7 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform1f(u.Underground,m.underground?1:0);
     gl.uniform1f(u.Time,time);
     gl.uniform1f(u.Haze,lighting.haze);
-    gl.uniform1f(u.Quality,quality==='low'?0:1);
+    gl.uniform1f(u.Quality,1);
     gl.uniform1f(u.Frame,frameIndex%1024);
     gl.uniform1f(u.Shadow,shadows?1:0);
     gl.uniform1f(u.Dynamic,0);
@@ -637,14 +652,7 @@ export function createRenderer(canvas,{wait=true}={}){
     updateActors(walkers);
     updateHeld(inHand);
     if(!resize){clientWidth=canvas.clientWidth;clientHeight=canvas.clientHeight;}
-    const dpi=devicePixelRatio||1;
-    const normalScale=Math.min(dpi,quality==='high'?1.5:mobile?1:1.25);
-    // The light mode renders 400 lines and lets the browser enlarge the picture.
-    // A fixed resolution (FHD 1080 or 2K 1440 lines) replaces the automatic scale outside the light mode.
-    const lines=resolution==='4k'?2160:resolution==='2k'?1440:resolution==='fhd'?1080:0;
-    const scale=quality==='low'?Math.min(dpi,LIGHT_LINES/Math.max(1,clientHeight)):lines?lines/Math.max(1,clientHeight):
-      quality==='auto'?normalScale*autoScale:normalScale;
-    const w=Math.max(1,Math.round(clientWidth*scale)),h=Math.max(1,Math.round(clientHeight*scale));
+    const [w,h]=displaySize(clientWidth,clientHeight,resolution);
     if(canvas.width!==w||canvas.height!==h){canvas.width=w;canvas.height=h;}
     try{post.resize(w,h);}
     catch(error){
@@ -652,13 +660,13 @@ export function createRenderer(canvas,{wait=true}={}){
       if(!floatColor)throw error;
       console.info('Float render targets unavailable',error.message);
       post.dispose();floatColor=false;
-      post=createPost(gl,{floatColor,compileProgram});
+      post=createPost(gl,{floatColor,ambientOcclusion:!mobile,compileProgram});
       for(const program of post.programs)program.resolve();
       post.resize(w,h);
     }
-    const taa=quality!=='low'&&floatColor;
-    const ssao=taa&&(quality==='high'||!mobile);
-    const bloom=quality!=='low'&&floatColor;
+    const taa=floatColor;
+    const ssao=taa&&!mobile;
+    const bloom=floatColor;
     updateSky(lighting,time);
     const targetExposure=model.underground?6:8.2;
     const step=previousTime===null?1:Math.min(.25,Math.max(0,time-previousTime));
@@ -672,21 +680,34 @@ export function createRenderer(canvas,{wait=true}={}){
     const vp=new Float32Array(plain);
     for(let i=0;i<4;i++){vp[i*4]+=jx*vp[i*4+3];vp[i*4+1]+=jy*vp[i*4+3];}
     const planes=frustumPlanes(plain);
-    const shadowsWanted=quality!=='low'&&eye[1]>-3&&!shadowUnsupported&&!model.underground;
+    const shadowsWanted=showShadows&&eye[1]>-3&&!shadowUnsupported&&!model.underground;
     if(shadowsWanted&&!shadowBuffer)shadowBuffer=createShadowBuffer();
     const shadows=shadowsWanted&&!!shadowBuffer;
     const forward=unit(to.map((n,i)=>n-eye[i]));
 
     const front=[];
-    const ordered=scene.map(batch=>({batch,distance:distanceToBounds(batch.bounds,eye[0],eye[2])}));
-    ordered.sort((a,b)=>a.distance-b.distance);
-    for(const {batch} of ordered)if(inFrustum(batch.bounds,planes))front.push(batch);
-    const casters=shadows?ordered.filter(({batch})=>cascades.some(c=>c.planes&&inFrustum(batch.bounds,c.planes))).map(o=>o.batch):[];
+    if(orderedX!==eye[0]||orderedZ!==eye[2]){
+      orderedX=eye[0];orderedZ=eye[2];
+      orderedScene=scene.map(batch=>({batch,distance:distanceToBounds(batch.bounds,orderedX,orderedZ)}))
+        .sort((a,b)=>a.distance-b.distance).map(entry=>entry.batch);
+    }
+    const uploadsNeeded=[];
+    for(const batch of orderedScene){
+      if(inFrustum(batch.bounds,planes)){
+        front.push(batch);
+        if(!residents.has(batch))uploadsNeeded.push(batch);
+      }
+    }
+    if(shadows&&uploadsNeeded.length<3)for(const batch of orderedScene){
+      if(uploadsNeeded.length===3)break;
+      if(residents.has(batch)||uploadsNeeded.includes(batch))continue;
+      if(cascades.some(c=>c.planes&&inFrustum(batch.bounds,c.planes)))uploadsNeeded.push(batch);
+    }
     let uploads=0,bytes=0;
     if(arrival&&front.includes(arrival)&&!residents.has(arrival)){
       upload(arrival);uploads++;bytes+=arrival.data.byteLength;
     }
-    for(const batch of [...front,...casters]){
+    for(const batch of uploadsNeeded){
       if(residents.has(batch))continue;
       const size=batch.data.byteLength;
       if(uploads>=3||uploads&&bytes+size>900*1024)break;
@@ -694,7 +715,7 @@ export function createRenderer(canvas,{wait=true}={}){
       uploads++;
       bytes+=size;
     }
-    trimCache();
+    if(uploads)trimCache();
 
     gl.enable(gl.DEPTH_TEST);
     gl.depthFunc(gl.LESS);
@@ -728,9 +749,9 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform3fv(main.u.Eye,eye);
     gl.uniform1f(main.u.Signal,signal);
     gl.uniform1i(main.u.SurfaceMaps,1);
-    gl.uniform1f(main.u.MaterialDetail,surfacesReady?(quality==='low'?1:2):0);
+    gl.uniform1f(main.u.MaterialDetail,surfacesReady?2:0);
     // In the light mode only what lies within the view radius and ahead of the camera is drawn.
-    const cone=quality==='low'?[forward[0],forward[1],forward[2],viewRadius]:[0,0,0,0];
+    const cone=[0,0,0,0];
     gl.uniform4fv(main.u.ViewCone,cone);
     gl.uniform3fv(main.u.ViewEye,eye);
     drawBatches(front,planes,eye);
@@ -758,7 +779,7 @@ export function createRenderer(canvas,{wait=true}={}){
     gl.uniform1f(main.u.Dynamic,0);
     gl.enable(gl.BLEND);
     gl.blendFuncSeparate(gl.SRC_ALPHA,gl.ONE_MINUS_SRC_ALPHA,gl.ZERO,gl.ONE);
-    drawGlass(front,planes,eye,forward);
+    if(hasGlass)drawGlass(front,planes,eye,forward);
     drawMesh(people.effect.mesh);
     gl.disable(gl.BLEND);
     gl.depthMask(true);
@@ -768,13 +789,13 @@ export function createRenderer(canvas,{wait=true}={}){
     const moved=previousEye?Math.hypot(eye[0]-previousEye[0],eye[1]-previousEye[1],eye[2]-previousEye[2]):Infinity;
     const sizeKey=w+'x'+h;
     const reset=!previousVP||moved>25||sizeKey!==previousSize;
-    const inverse=invert(vp);
-    const reproject=product(previousVP??plain,inverse);
+    const inverse=taa?invert(vp):null;
+    const reproject=taa?product(previousVP??plain,inverse):null;
     // Speed blur uses the previous position with the current rotation; its strength follows a
     // fixed shutter time, so it looks the same at any frame rate.
     let blur=0,blurReproject=null;
-    // Phones skip it unless the high quality setting asks for every effect.
-    if(options.blur>0&&taa&&(quality==='high'||!mobile)&&!reset&&moved>.004){
+    // Phones skip the extra screen pass.
+    if(options.blur>0&&taa&&!mobile&&!reset&&moved>.004){
       blurReproject=product(cameraProjection(previousEye,previousEye.map((n,i)=>n+forward[i]),w/h,fov),inverse);
       blur=options.blur*Math.min(1,.0105/Math.max(step,1/240));
     }
@@ -812,7 +833,7 @@ export function createRenderer(canvas,{wait=true}={}){
     // loadGeneratedTextures(). The layers go up three per frame.
     setPhotoTextures({tile,layers,table}){
       if(!layers?.length)return;
-      if(photoUpload)gl.deleteTexture(photoUpload.texture);
+      if(photoUpload)discardPhotoUpload();
       const texture=gl.createTexture();
       gl.activeTexture(gl.TEXTURE7);
       gl.bindTexture(gl.TEXTURE_2D_ARRAY,texture);
@@ -830,25 +851,22 @@ export function createRenderer(canvas,{wait=true}={}){
       photoUpload={texture,tile,layers:[...layers],table,next:0,read,draw,blit};
     },
     get photoTextures(){return photoReady;},
-    setQuality(value){
-      quality=value;autoScale=1;shadowDirty=true;
-      for(const cascade of cascades)cascade.key='';
-      // Light mode draws no shadows, so the atlas (8-32 MB of video memory) is released.
-      if(value==='low'&&shadowBuffer){
-        gl.deleteTexture(shadowBuffer.texture);gl.deleteFramebuffer(shadowBuffer.framebuffer);shadowBuffer=null;
-      }
-      post.invalidate();
-    },
-    setAutoScale(value){autoScale=value;},
-    // resolution: 'auto', 'fhd', '2k' or '4k'; hdr: false for 8-bit rendering; reflections: false draws glass, water and paint without mirror images.
     setDisplay(options){
       if(options.resolution&&options.resolution!==resolution){resolution=options.resolution;post.invalidate();}
       if(typeof options.reflections==='boolean')reflections=options.reflections;
+      if(typeof options.shadows==='boolean'&&options.shadows!==showShadows){
+        showShadows=options.shadows;
+        shadowDirty=true;
+        for(const cascade of cascades)cascade.key='';
+        if(!showShadows&&shadowBuffer){
+          gl.deleteTexture(shadowBuffer.texture);gl.deleteFramebuffer(shadowBuffer.framebuffer);shadowBuffer=null;
+        }
+      }
       // HDR off renders into 8-bit targets: no temporal antialiasing, bloom or eye adaptation, FXAA instead.
       const hdr=hdrCapable&&options.hdr!==false;
       if(typeof options.hdr==='boolean'&&hdr!==floatColor){
         post.dispose();floatColor=hdr;
-        post=createPost(gl,{floatColor,compileProgram});
+        post=createPost(gl,{floatColor,ambientOcclusion:!mobile,compileProgram});
         for(const program of post.programs)program.resolve();
       }
     },
@@ -861,11 +879,12 @@ export function createRenderer(canvas,{wait=true}={}){
         gl.deleteBuffer(resident.buffer);
       }
       residents.clear();
-      for(const actor of Object.values(people)){gl.deleteVertexArray(actor.mesh.vao);gl.deleteBuffer(actor.buffer);}
+      for(const actor of [...Object.values(people),...Object.values(held)]){gl.deleteVertexArray(actor.mesh.vao);gl.deleteBuffer(actor.buffer);}
       gl.deleteVertexArray(paneMesh.vao);gl.deleteBuffer(paneBuffer);
       for(const shape of Object.values(geometry)){gl.deleteBuffer(shape.buffer);gl.deleteBuffer(shape.elements);}
+      if(photoUpload)discardPhotoUpload();
       for(const texture of [surfaceTexture,skyTexture,placeholderShadow,shadowBuffer?.texture,materialUpload?.texture,
-        photoTexture,photoTable,photoUpload?.texture])if(texture)gl.deleteTexture(texture);
+        photoTexture,photoTable])if(texture)gl.deleteTexture(texture);
       materialUpload=null;photoUpload=null;
       for(const framebuffer of [skyFramebuffer,shadowBuffer?.framebuffer])if(framebuffer)gl.deleteFramebuffer(framebuffer);
       for(const sampler of [compareSampler,rawSampler])gl.deleteSampler(sampler);
